@@ -86,6 +86,13 @@ void IvyRenderModule::Init(const json& initData)
     InitTextures();
     InitWorkGraphProgram();
 
+    m_ivyRenderIndirect.Init(m_pWorkGraphRootSignature,
+                             m_pGBufferAlbedoOutput,
+                             m_pGBufferNormalOutput,
+                             m_pGBufferAoRoughnessMetallicOutput,
+                             m_pGBufferMotionOutput,
+                             m_pGBufferDepthOutput);
+
     // Use ImGui hooks to render 3D user interface
     ImGuiContextHook hook = {};
     hook.Callback         = [](ImGuiContext* ctx, ImGuiContextHook* hook) {
@@ -239,6 +246,12 @@ void IvyRenderModule::Execute(double deltaTime, cauldron::CommandList* pCmdList)
         // Clear backing memory initialization flag, as the graph has run at least once now
         m_WorkGraphProgramDesc.WorkGraph.Flags &= ~D3D12_SET_WORK_GRAPH_FLAG_INITIALIZE;
     }
+
+    // Indirect draw ivy
+    m_ivyRenderIndirect.Render(&m_RTInfoTables.m_VertexBuffers, 
+                               &m_RTInfoTables.m_IndexBuffers, 
+                               m_ivyLeafSurfaceIndex,
+                               &m_RTInfoTables.m_cpuSurfaceBuffer);
 
     EndRaster(pCmdList, nullptr);
 

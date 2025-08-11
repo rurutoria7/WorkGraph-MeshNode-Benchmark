@@ -5,3 +5,4 @@ bin
 # Cauldron media folder
 media
 !media/Ivy
+ivySample/.vscode/settings.json

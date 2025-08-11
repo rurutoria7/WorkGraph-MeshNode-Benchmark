@@ -25,6 +25,7 @@
 #include "render/shaderbuilder.h"
 #include "core/contentmanager.h"
 #include "core/uimanager.h"
+#include "ivyrender_indirect.h"
 
 // common files with shaders
 #include "shaders/ivycommon.h"
@@ -153,4 +154,6 @@ private:
     int m_ivyStemSurfaceIndex = -1;
     // Index of ivy leaf surface in m_cpuSurfaceBuffer
     int m_ivyLeafSurfaceIndex = -1;
+
+    IvyRenderIndirect m_ivyRenderIndirect;
 };
