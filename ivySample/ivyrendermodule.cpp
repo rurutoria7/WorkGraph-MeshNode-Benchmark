@@ -248,9 +248,11 @@ void IvyRenderModule::Execute(double deltaTime, cauldron::CommandList* pCmdList)
     }
 
     // Indirect draw ivy
-    m_ivyRenderIndirect.Render(&m_RTInfoTables.m_VertexBuffers, 
+    m_ivyRenderIndirect.Render(m_pWorkGraphParameterSet,
+                               &m_RTInfoTables.m_VertexBuffers, 
                                &m_RTInfoTables.m_IndexBuffers, 
                                m_ivyLeafSurfaceIndex,
+                               m_ivyStemSurfaceIndex,
                                &m_RTInfoTables.m_cpuSurfaceBuffer);
 
     EndRaster(pCmdList, nullptr);

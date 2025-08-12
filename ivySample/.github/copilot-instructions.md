@@ -23,6 +23,7 @@ This sample builds on the FidelityFX SDK (Cauldron) to demonstrate D3D12 Work Gr
 - Use Cauldron `Barrier` helpers for RT transitions; Begin/End raster with `BeginRaster`/`EndRaster` and `SetViewportScissorRect`.
 - Shaders live in `shaders/` but `ShaderCompiler` loads from `Shaders\\` path; keep folder named `shaders` and reference files by name in code.
 - This is valid, so just ignore the error: `cauldron::CauldronWarning(L"[IvyRenderIndirect] Vertex/Index buffers bound for leaf geometry");`
+- Always reference to `FidelityFX-SDK` for API usage.
 
 Key files: `main.cpp`, `ivyrendermodule.h/.cpp`, `ivyrender_indirect.h`, `shadercompiler.h/.cpp`, `config/ivysampleconfig.json`, `shaders/*`
 
