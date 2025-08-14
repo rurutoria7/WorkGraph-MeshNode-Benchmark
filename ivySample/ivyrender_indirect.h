@@ -27,7 +27,8 @@ struct IvyRenderIndirect
     };
 
     cauldron::Buffer*           m_pArgsBuffer       = nullptr;
-    cauldron::Buffer*           m_pInstanceBuffer   = nullptr;
+    cauldron::Buffer*           m_pStemInstanceBuffer   = nullptr;
+    cauldron::Buffer*           m_pLeafInstanceBuffer   = nullptr;
     cauldron::IndirectWorkload* m_pIndirectWorkload = nullptr;
     cauldron::RootSignature*    m_pRootSignature    = nullptr;  // Own Graphics Root Signature
     cauldron::ParameterSet*     m_pParameterSet     = nullptr;  // Own ParameterSet
@@ -39,8 +40,10 @@ struct IvyRenderIndirect
     {
         if (m_pArgsBuffer)
             delete m_pArgsBuffer;
-        if (m_pInstanceBuffer)
-            delete m_pInstanceBuffer;
+        if (m_pStemInstanceBuffer)
+            delete m_pStemInstanceBuffer;
+        if (m_pLeafInstanceBuffer)
+            delete m_pLeafInstanceBuffer;
         if (m_pIndirectWorkload)
             delete m_pIndirectWorkload;
         if (m_pParameterSet)
@@ -67,9 +70,11 @@ struct IvyRenderIndirect
         m_pArgsBuffer->CopyData(dummyArgs, sizeof(dummyArgs));
 
         // Create instance buffer as StructuredBuffer
-        cauldron::BufferDesc instanceDesc = cauldron::BufferDesc::Data(L"Ivy_InstanceBuffer", sizeof(IvyInstanceData) * m_maxInstances, sizeof(IvyInstanceData));
-        m_pInstanceBuffer = cauldron::Buffer::CreateBufferResource(&instanceDesc, cauldron::ResourceState::CopyDest);
-
+        cauldron::BufferDesc instanceDesc = cauldron::BufferDesc::Data(L"Ivy_StemInstanceBuffer", sizeof(IvyInstanceData) * m_maxInstances, sizeof(IvyInstanceData));
+        m_pStemInstanceBuffer = cauldron::Buffer::CreateBufferResource(&instanceDesc, cauldron::ResourceState::CopyDest);
+        instanceDesc.Name = L"Ivy_LeafInstanceBuffer";
+        m_pLeafInstanceBuffer = cauldron::Buffer::CreateBufferResource(&instanceDesc, cauldron::ResourceState::CopyDest);
+        
         // Initialize instances for both leaf and stem (4 total instances)
         IvyInstanceData allInstances[4];
         
@@ -82,7 +87,8 @@ struct IvyRenderIndirect
         allInstances[3].transform = Mat4::translation(Vec3(3.0f, 0.0f, 0.0f));   // Stem instance 1
         
         // Upload instance data to buffer
-        m_pInstanceBuffer->CopyData(allInstances, sizeof(allInstances));
+        m_pStemInstanceBuffer->CopyData(allInstances, sizeof(allInstances));
+        m_pLeafInstanceBuffer->CopyData(allInstances, sizeof(allInstances));
 
         // Create independent Graphics Root Signature for ExecuteIndirect
         cauldron::RootSignatureDesc execIndirectRootSigDesc;
@@ -99,7 +105,7 @@ struct IvyRenderIndirect
         m_pParameterSet->SetRootConstantBufferResource(cauldron::GetDynamicBufferPool()->GetResource(), sizeof(Mat4), 0);
         
         // Bind instance buffer to SRV - Shader Register t0  
-        m_pParameterSet->SetBufferSRV(m_pInstanceBuffer, 0);
+        m_pParameterSet->SetBufferSRV(m_pStemInstanceBuffer, 0);
 
         // Create Pipeline State Object
         cauldron::PipelineDesc psoDesc;
@@ -262,6 +268,8 @@ struct IvyRenderIndirect
             cauldron::BufferAddressInfo indexBufferInfo = (*pIndexBuffers)[leafSurfaceInfo.index_offset]->GetAddressInfo();
             cauldron::SetIndexBuffer(pCmdList, &indexBufferInfo);
 
+            m_pParameterSet->SetBufferSRV(m_pLeafInstanceBuffer, 0);
+
             // Execute first draw command (leaf) using offset 0
             cauldron::ExecuteIndirect(pCmdList, m_pIndirectWorkload, m_pArgsBuffer, 1 /*drawCount*/, 0 /*offset*/);
             cauldron::CauldronWarning(L"[IvyRenderIndirect] Executed leaf geometry");
@@ -281,6 +289,8 @@ struct IvyRenderIndirect
 
             cauldron::BufferAddressInfo indexBufferInfo = (*pIndexBuffers)[stemSurfaceInfo.index_offset]->GetAddressInfo();
             cauldron::SetIndexBuffer(pCmdList, &indexBufferInfo);
+
+            m_pParameterSet->SetBufferSRV(m_pStemInstanceBuffer, 0);
 
             // Execute second draw command (stem) using offset sizeof(DrawIndexedArgs)
             cauldron::ExecuteIndirect(pCmdList, m_pIndirectWorkload, m_pArgsBuffer, 1 /*drawCount*/, sizeof(DrawIndexedArgs) /*offset*/);

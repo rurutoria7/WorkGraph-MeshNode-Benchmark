@@ -36,7 +36,7 @@
 
 ## Goal 2: Instance Draw
 
-1. Draw 2 Instance
+1. [x] Draw 2 Instance
     - argument buffer should update instance count
     - instance buffer is created
     - Bind Instance Buffer as SRV
@@ -52,14 +52,25 @@
 制定計劃，為 ExecuteIndirect 的 pass 獨立出一個 root signature。
 ```
 
-2. Draw 2 Instance with Stem & Leaf (both)
+2. [x] Draw 2 Instance with Stem & Leaf (both)
     - 2 instance buffer
+        - On Init
+            - [ ] Create another instance buffer
+        - Execute
+            - Add a binding
 
 
 ## Goal 3: Compute Node Write Instance Buffer & Args Buffer
 
 1. Only Modify the Instance Count
-    - from work graph's last compute node, AtomicAdd 
+    - from work graph's last compute node, AtomicAdd "Argument Buffer"
+        - Should set Argument buffer to UAV
+            - Check if Creation of Argument buffer needs to change
+        - Should set Argument buffer to "SRV?????" 
+    - group 0-3: leaf, leaf, stem, stem, totaly 4 instance
+    - We should see 4 instance on the screen
+
+2. Modify Transform
 
 ## Resource
 
