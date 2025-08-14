@@ -1,9 +1,3 @@
-/*
-## Referencing Geometry
-
-std::vector<const cauldron::Buffer*> m_VertexBuffers;
-std::vector<const cauldron::Buffer*> m_IndexBuffers;
-
 ## [x] Goal 1: Use ExecuteIndirect Draw a Leaf
 
 1. [x] Run Execute Indirect without error
@@ -39,20 +33,39 @@ std::vector<const cauldron::Buffer*> m_IndexBuffers;
 5. Draw 1 stem also
     - [x] Argument buffer, add one element
         - getting instance count can reference to drawing leaf
-    - [ ] 
 
 ## Goal 2: Instance Draw
 
 1. Draw 2 Instance
-    - Create Instance buffer, which contains 2 instance data
-    - instance data just contains transform matrix: float4x4
     - argument buffer should update instance count
-    - instance buffer is filled with CPU: 
-        - first instance no transform (identity)
-        - second instance have small offset
+    - instance buffer is created
+    - Bind Instance Buffer as SRV
+        - Modify Root Signature
+            - **What Slot?**
+        - Modify Parametere Set
+        - Add binding command
+    - Get Attribute in HLSL
+
+```
+這是因為我們嘗試共用 root signature。 root signature 有分成 compute 和 graphics type。
+我們應該把 root signature 分開才對。
+制定計劃，為 ExecuteIndirect 的 pass 獨立出一個 root signature。
+```
+
+2. Draw 2 Instance with Stem & Leaf (both)
+    - 2 instance buffer
 
 
-## Goal 3
+## Goal 3: Compute Node Write Instance Buffer & Args Buffer
+
+1. Only Modify the Instance Count
+    - from work graph's last compute node, AtomicAdd 
+
+## Resource
+
+Descriptor Heap
+Root Signature
+Shader Register
 
 ## Goal: Draw Better
 

@@ -3,11 +3,15 @@
 
 #include "ivycommon.h"
 
+// Instance data buffer
+StructuredBuffer<IvyInstanceData> g_instance_data : register(t0);
+
 // Vertex input
 struct VSInput
 {
     float3 Position : POSITION;
     float3 Normal : NORMAL;
+    uint InstanceID : SV_InstanceID;
 };
 
 // Vertex output / Pixel input  
@@ -22,12 +26,18 @@ PSInput VSMain(VSInput input)
 {
     PSInput output;
     
-    float4 worldSpacePosition = float4(input.Position * 10.0f, 1.0f);
-    worldSpacePosition.y += 3;
+    // Get instance transform from structured buffer
+    float4x4 instanceTransform = g_instance_data[input.InstanceID].transform;
+    
+    // Apply instance transform to vertex position
+    float4 localPosition = float4(input.Position * 10.0f, 1.0f);
+    localPosition.y += 3;
+    float4 worldSpacePosition = mul(instanceTransform, localPosition);
     
     output.Position = mul(ViewProjection, worldSpacePosition);
     
-    output.Normal = normalize(input.Normal);
+    // Transform normal by instance transform (3x3 part)
+    output.Normal = normalize(mul((float3x3)instanceTransform, input.Normal));
     
     return output;
 }

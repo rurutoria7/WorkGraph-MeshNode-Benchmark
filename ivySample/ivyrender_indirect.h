@@ -9,6 +9,7 @@
 #include "render/parameterset.h"
 #include "core/framework.h"
 #include "misc/assert.h"
+#include "misc/math.h"
 #include "shaders/ivycommon.h"
 #include "shadercompiler.h"
 #include <dxcapi.h>
@@ -26,24 +27,31 @@ struct IvyRenderIndirect
     };
 
     cauldron::Buffer*           m_pArgsBuffer       = nullptr;
+    cauldron::Buffer*           m_pInstanceBuffer   = nullptr;
     cauldron::IndirectWorkload* m_pIndirectWorkload = nullptr;
-    cauldron::RootSignature*    m_pRootSignature    = nullptr;
+    cauldron::RootSignature*    m_pRootSignature    = nullptr;  // Own Graphics Root Signature
+    cauldron::ParameterSet*     m_pParameterSet     = nullptr;  // Own ParameterSet
     cauldron::PipelineObject*   m_pPipelineObject   = nullptr;
     bool                        m_argsReady         = false;
+    uint32_t                    m_maxInstances      = 1000;
 
     ~IvyRenderIndirect()
     {
         if (m_pArgsBuffer)
             delete m_pArgsBuffer;
+        if (m_pInstanceBuffer)
+            delete m_pInstanceBuffer;
         if (m_pIndirectWorkload)
             delete m_pIndirectWorkload;
+        if (m_pParameterSet)
+            delete m_pParameterSet;
+        if (m_pRootSignature)
+            delete m_pRootSignature;
         if (m_pPipelineObject)
             delete m_pPipelineObject;
-        // Note: m_pRootSignature is shared, don't delete it
     }
 
-    void Init(cauldron::RootSignature* pSharedRootSignature, 
-              const cauldron::Texture* pAlbedoRT,
+    void Init(const cauldron::Texture* pAlbedoRT,
               const cauldron::Texture* pNormalRT,
               const cauldron::Texture* pAoRoughnessMetallicRT,
               const cauldron::Texture* pMotionRT,
@@ -58,8 +66,40 @@ struct IvyRenderIndirect
         m_pArgsBuffer = cauldron::Buffer::CreateBufferResource(&argsDesc, cauldron::ResourceState::CopyDest);
         m_pArgsBuffer->CopyData(dummyArgs, sizeof(dummyArgs));
 
-        // Use shared root signature from ivyrendermodule
-        m_pRootSignature = pSharedRootSignature;
+        // Create instance buffer as StructuredBuffer
+        cauldron::BufferDesc instanceDesc = cauldron::BufferDesc::Data(L"Ivy_InstanceBuffer", sizeof(IvyInstanceData) * m_maxInstances, sizeof(IvyInstanceData));
+        m_pInstanceBuffer = cauldron::Buffer::CreateBufferResource(&instanceDesc, cauldron::ResourceState::CopyDest);
+
+        // Initialize instances for both leaf and stem (4 total instances)
+        IvyInstanceData allInstances[4];
+        
+        // Leaf instances (indices 0-1): positioned on the left side  
+        allInstances[0].transform = Mat4::translation(Vec3(-3.0f, 0.0f, 0.0f));  // Leaf instance 0
+        allInstances[1].transform = Mat4::translation(Vec3(-1.0f, 0.0f, 0.0f));  // Leaf instance 1
+        
+        // Stem instances (indices 2-3): positioned on the right side
+        allInstances[2].transform = Mat4::translation(Vec3(1.0f, 0.0f, 0.0f));   // Stem instance 0  
+        allInstances[3].transform = Mat4::translation(Vec3(3.0f, 0.0f, 0.0f));   // Stem instance 1
+        
+        // Upload instance data to buffer
+        m_pInstanceBuffer->CopyData(allInstances, sizeof(allInstances));
+
+        // Create independent Graphics Root Signature for ExecuteIndirect
+        cauldron::RootSignatureDesc execIndirectRootSigDesc;
+        execIndirectRootSigDesc.AddConstantBufferView(0, cauldron::ShaderBindStage::Vertex, 1);        // ViewProjection CBV
+        execIndirectRootSigDesc.AddBufferSRVSet(0, cauldron::ShaderBindStage::Vertex, 1);             // Instance buffer SRV
+        execIndirectRootSigDesc.m_PipelineType = cauldron::PipelineType::Graphics;
+        
+        m_pRootSignature = cauldron::RootSignature::CreateRootSignature(L"ExecuteIndirect_RootSignature", execIndirectRootSigDesc);
+        
+        // Create ParameterSet for this Root Signature
+        m_pParameterSet = cauldron::ParameterSet::CreateParameterSet(m_pRootSignature);
+        
+        // Initialize root constant buffer resource - Shader Register b0
+        m_pParameterSet->SetRootConstantBufferResource(cauldron::GetDynamicBufferPool()->GetResource(), sizeof(Mat4), 0);
+        
+        // Bind instance buffer to SRV - Shader Register t0  
+        m_pParameterSet->SetBufferSRV(m_pInstanceBuffer, 0);
 
         // Create Pipeline State Object
         cauldron::PipelineDesc psoDesc;
@@ -103,7 +143,7 @@ struct IvyRenderIndirect
         cauldron::CauldronWarning(L"[IvyRenderIndirect] Init() completed: PSO and dummy args created");
     }
 
-    void Render(cauldron::ParameterSet* pWorkGraphParameterSet,
+    void Render(const Mat4& viewProjectionMatrix,
                 const std::vector<const cauldron::Buffer*>* pVertexBuffers = nullptr, 
                 const std::vector<const cauldron::Buffer*>* pIndexBuffers = nullptr,
                 int ivyLeafSurfaceIndex = -1,
@@ -130,11 +170,12 @@ struct IvyRenderIndirect
         // Set primitive topology to triangle list
         cauldron::SetPrimitiveTopology(pCmdList, cauldron::PrimitiveTopology::TriangleList);
 
-        // Bind the work graph parameter set to get access to constant buffer (ViewProjection matrix)
-        if (pWorkGraphParameterSet)
-        {
-            pWorkGraphParameterSet->Bind(pCmdList, m_pPipelineObject);
-        }
+        // Update ViewProjection matrix in our own ParameterSet
+        cauldron::BufferAddressInfo viewProjBufferInfo = cauldron::GetDynamicBufferPool()->AllocConstantBuffer(sizeof(Mat4), &viewProjectionMatrix);
+        m_pParameterSet->UpdateRootConstantBuffer(&viewProjBufferInfo, 0);
+        
+        // Bind our own ParameterSet with ViewProjection CBV and Instance Buffer SRV
+        m_pParameterSet->Bind(pCmdList, m_pPipelineObject);
 
         // Prepare draw arguments for leaf and stem
         DrawIndexedArgs drawCommands[2] = {};
@@ -156,7 +197,7 @@ struct IvyRenderIndirect
                     leafSurfaceInfo.index_offset < static_cast<int>(pIndexBuffers->size()))
                 {
                     drawCommands[0].IndexCountPerInstance = leafSurfaceInfo.num_indices;
-                    drawCommands[0].InstanceCount = 1;
+                    drawCommands[0].InstanceCount = 2;  // Render 2 leaf instances
                     drawCommands[0].StartIndexLocation = 0;
                     drawCommands[0].BaseVertexLocation = 0;
                     drawCommands[0].StartInstanceLocation = 0;
@@ -179,10 +220,10 @@ struct IvyRenderIndirect
                     stemSurfaceInfo.index_offset < static_cast<int>(pIndexBuffers->size()))
                 {
                     drawCommands[1].IndexCountPerInstance = stemSurfaceInfo.num_indices;
-                    drawCommands[1].InstanceCount = 1;
+                    drawCommands[1].InstanceCount = 2;  // Render 2 instances
                     drawCommands[1].StartIndexLocation = 0;
                     drawCommands[1].BaseVertexLocation = 0;
-                    drawCommands[1].StartInstanceLocation = 0;
+                    drawCommands[1].StartInstanceLocation = 2;  // Start from instance index 2
                     validDrawCommands = 2; // We have both leaf and stem
 
                     cauldron::CauldronWarning(L"[IvyRenderIndirect] Stem geometry prepared: indices=%d", stemSurfaceInfo.num_indices);

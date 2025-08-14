@@ -86,8 +86,7 @@ void IvyRenderModule::Init(const json& initData)
     InitTextures();
     InitWorkGraphProgram();
 
-    m_ivyRenderIndirect.Init(m_pWorkGraphRootSignature,
-                             m_pGBufferAlbedoOutput,
+    m_ivyRenderIndirect.Init(m_pGBufferAlbedoOutput,
                              m_pGBufferNormalOutput,
                              m_pGBufferAoRoughnessMetallicOutput,
                              m_pGBufferMotionOutput,
@@ -247,8 +246,8 @@ void IvyRenderModule::Execute(double deltaTime, cauldron::CommandList* pCmdList)
         m_WorkGraphProgramDesc.WorkGraph.Flags &= ~D3D12_SET_WORK_GRAPH_FLAG_INITIALIZE;
     }
 
-    // Indirect draw ivy
-    m_ivyRenderIndirect.Render(m_pWorkGraphParameterSet,
+    // Indirect draw ivy  
+    m_ivyRenderIndirect.Render(workGraphData.ViewProjection,
                                &m_RTInfoTables.m_VertexBuffers, 
                                &m_RTInfoTables.m_IndexBuffers, 
                                m_ivyLeafSurfaceIndex,
@@ -297,7 +296,6 @@ void IvyRenderModule::InitWorkGraphProgram()
     workGraphRootSigDesc.AddBufferSRVSet(RAYTRACING_INFO_BEGIN_SLOT + 1, ShaderBindStage::Compute, 1);
     workGraphRootSigDesc.AddBufferSRVSet(RAYTRACING_INFO_BEGIN_SLOT + 2, ShaderBindStage::Compute, 1);
     workGraphRootSigDesc.AddBufferSRVSet(RAYTRACING_INFO_BEGIN_SLOT + 3, ShaderBindStage::Compute, 1);
-
     workGraphRootSigDesc.AddTextureSRVSet(TEXTURE_BEGIN_SLOT, ShaderBindStage::Compute, MAX_TEXTURES_COUNT);
 
     workGraphRootSigDesc.AddBufferSRVSet(INDEX_BUFFER_BEGIN_SLOT, ShaderBindStage::Compute, MAX_BUFFER_COUNT);

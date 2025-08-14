@@ -153,3 +153,13 @@ struct Surface_Info
     int weight_attribute_offset;
     int joints_attribute_offset;
 };
+
+// Instance data for ExecuteIndirect rendering
+struct IvyInstanceData
+{
+#if __cplusplus
+    Mat4 transform;
+#else
+    float4x4 transform;
+#endif  // __cplusplus
+};
