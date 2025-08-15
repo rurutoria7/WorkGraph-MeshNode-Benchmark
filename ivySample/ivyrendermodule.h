@@ -156,4 +156,11 @@ private:
     int m_ivyLeafSurfaceIndex = -1;
 
     IvyRenderIndirect m_ivyRenderIndirect;
+
+    // Argument buffer for ExecuteIndirect (shared between work graph and ExecuteIndirect)
+    cauldron::Buffer* m_pArgumentBuffer = nullptr;
+    
+    // Instance buffers for ExecuteIndirect rendering
+    cauldron::Buffer* m_pStemInstanceBuffer = nullptr;
+    cauldron::Buffer* m_pLeafInstanceBuffer = nullptr;
 };

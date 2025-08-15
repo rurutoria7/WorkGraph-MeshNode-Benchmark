@@ -154,6 +154,16 @@ struct Surface_Info
     int joints_attribute_offset;
 };
 
+// ExecuteIndirect draw arguments structure
+struct DrawIndexedArgs
+{
+    uint32_t IndexCountPerInstance;
+    uint32_t InstanceCount;
+    uint32_t StartIndexLocation;
+    int32_t  BaseVertexLocation;
+    uint32_t StartInstanceLocation;
+};
+
 // Instance data for ExecuteIndirect rendering
 struct IvyInstanceData
 {

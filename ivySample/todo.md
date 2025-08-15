@@ -64,13 +64,79 @@
 
 1. Only Modify the Instance Count
     - from work graph's last compute node, AtomicAdd "Argument Buffer"
-        - Should set Argument buffer to UAV
-            - Check if Creation of Argument buffer needs to change
-        - Should set Argument buffer to "SRV?????" 
-    - group 0-3: leaf, leaf, stem, stem, totaly 4 instance
+        - Buffer 
+            - [ ] Argument Buffer should be member of "ivyrendermodule"
+            - [ ] Initialize: Every Frame it should be initialized with correct e.g. VertexCount and 0 in Instance Count
+                - use command to copy
+            - [ ] Resource Barrier:
+                1. not first time: Indirect --> Copy Dest
+                2. Initialze argument buffer with Copy Command
+                3. CopyDest --> Unorded Access
+                4. Dispatch Graph()
+                5. Unordered Access --> Indirect
+        - Referencing in HLSL
+            - [ ] StructuredBuffer<IndirectCommand>, so IndirectCommand structure's declaration should be moved to "ivycommon.h"
+            - [ ] in "ivy.hlsl" group 0-3: leaf add 1, leaf add 1, stem add 1, stem add 1, totaly 4 instance
+        - Root Signature
+            - Should Modify Work Graph's Root Signature
+            - Instead of Native API, Caldron's API ParameterSet should be used.
+            1. [ ] Figure out available Register Index
+            2. [ ] Modify Root Signature creation, add a UAV
+            3. [ ] Bind argument buffer once
     - We should see 4 instance on the screen
 
-2. Modify Transform
+
+2. Atomic Add Instance Count
+    - Fill instance_buffer by CPU, on Init
+        - Fill with dummy values, let instance are arranged in a rows and rows
+            - the space between every instance can be like e.g. 0.5
+    - In ivy.hlsl --> IvyBranch(), every Wave should Add Instance Count by 1
+        - So that we can see Atomic Add is working as we expected
+
+```
+做一個調整，就是把 instance transform 往上移動 1.
+然後把 instance count 調整到 10000
+
+把 atomic add 放回來
+把一個 row 改成 1000 instance
+
+bug: 加上 atomic add 之後，instance 還是不見了。
+檢查方向：
+- resource barrier 問題
+- 先假設 ivyBranch 都有執行到
+- 也可以提出一些實驗來排除可能性
+- 
+
+
+把取得的知識，還有新做的更改，總結到 CLAUD.md。
+另外檢查 CLAUD.md 有沒有 out of date 的內容。
+```
+
+
+- update CLAUDE.md
+
+```
+understand these files, especially
+1. resource creation, binding, barrier
+2. life cycle of this render module
+3. render pass, what resource is involved
+4. API Usage
+
+key files are #ivyrendermodule #ivyrender_indirect
+```
+
+3. Try to write transform
+
+4. Write correct transform
+
+## Goal 4: Draw Better
+
+1. PS output Albedo as color
+    - Bind Albedo texture SRV
+
+2. Align Pixel Shader to original Implementation
+
+## Goal 5: Consider Output Limit
 
 ## Resource
 
@@ -78,10 +144,5 @@ Descriptor Heap
 Root Signature
 Shader Register
 
-## Goal: Draw Better
 
-1. PS output Albedo as color
-    - Bind Albedo texture SRV
-
-2. Align Pixel Shader to original Implementation
 */

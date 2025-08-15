@@ -16,34 +16,13 @@
 
 struct IvyRenderIndirect
 {
-    // Simple draw args for single draw command
-    struct DrawIndexedArgs
-    {
-        uint32_t IndexCountPerInstance;
-        uint32_t InstanceCount;
-        uint32_t StartIndexLocation;
-        int32_t  BaseVertexLocation;
-        uint32_t StartInstanceLocation;
-    };
-
-    cauldron::Buffer*           m_pArgsBuffer       = nullptr;
-    cauldron::Buffer*           m_pStemInstanceBuffer   = nullptr;
-    cauldron::Buffer*           m_pLeafInstanceBuffer   = nullptr;
     cauldron::IndirectWorkload* m_pIndirectWorkload = nullptr;
     cauldron::RootSignature*    m_pRootSignature    = nullptr;  // Own Graphics Root Signature
     cauldron::ParameterSet*     m_pParameterSet     = nullptr;  // Own ParameterSet
     cauldron::PipelineObject*   m_pPipelineObject   = nullptr;
-    bool                        m_argsReady         = false;
-    uint32_t                    m_maxInstances      = 1000;
 
     ~IvyRenderIndirect()
     {
-        if (m_pArgsBuffer)
-            delete m_pArgsBuffer;
-        if (m_pStemInstanceBuffer)
-            delete m_pStemInstanceBuffer;
-        if (m_pLeafInstanceBuffer)
-            delete m_pLeafInstanceBuffer;
         if (m_pIndirectWorkload)
             delete m_pIndirectWorkload;
         if (m_pParameterSet)
@@ -62,33 +41,7 @@ struct IvyRenderIndirect
     {
         m_pIndirectWorkload = cauldron::IndirectWorkload::CreateIndirectWorkload(cauldron::IndirectCommandType::DrawIndexed);
 
-        // Create argument buffer for both leaf and stem (two draw commands)
-        DrawIndexedArgs dummyArgs[2] = {};
-
-        cauldron::BufferDesc argsDesc = cauldron::BufferDesc::Data(L"Ivy_IndirectArgs", sizeof(DrawIndexedArgs) * 2, sizeof(uint32_t));
-        m_pArgsBuffer = cauldron::Buffer::CreateBufferResource(&argsDesc, cauldron::ResourceState::CopyDest);
-        m_pArgsBuffer->CopyData(dummyArgs, sizeof(dummyArgs));
-
-        // Create instance buffer as StructuredBuffer
-        cauldron::BufferDesc instanceDesc = cauldron::BufferDesc::Data(L"Ivy_StemInstanceBuffer", sizeof(IvyInstanceData) * m_maxInstances, sizeof(IvyInstanceData));
-        m_pStemInstanceBuffer = cauldron::Buffer::CreateBufferResource(&instanceDesc, cauldron::ResourceState::CopyDest);
-        instanceDesc.Name = L"Ivy_LeafInstanceBuffer";
-        m_pLeafInstanceBuffer = cauldron::Buffer::CreateBufferResource(&instanceDesc, cauldron::ResourceState::CopyDest);
-        
-        // Initialize instances for both leaf and stem (4 total instances)
-        IvyInstanceData allInstances[4];
-        
-        // Leaf instances (indices 0-1): positioned on the left side  
-        allInstances[0].transform = Mat4::translation(Vec3(-3.0f, 0.0f, 0.0f));  // Leaf instance 0
-        allInstances[1].transform = Mat4::translation(Vec3(-1.0f, 0.0f, 0.0f));  // Leaf instance 1
-        
-        // Stem instances (indices 2-3): positioned on the right side
-        allInstances[2].transform = Mat4::translation(Vec3(1.0f, 0.0f, 0.0f));   // Stem instance 0  
-        allInstances[3].transform = Mat4::translation(Vec3(3.0f, 0.0f, 0.0f));   // Stem instance 1
-        
-        // Upload instance data to buffer
-        m_pStemInstanceBuffer->CopyData(allInstances, sizeof(allInstances));
-        m_pLeafInstanceBuffer->CopyData(allInstances, sizeof(allInstances));
+        // Note: Argument buffer and instance buffers are now created and managed by IvyRenderModule
 
         // Create independent Graphics Root Signature for ExecuteIndirect
         cauldron::RootSignatureDesc execIndirectRootSigDesc;
@@ -103,9 +56,6 @@ struct IvyRenderIndirect
         
         // Initialize root constant buffer resource - Shader Register b0
         m_pParameterSet->SetRootConstantBufferResource(cauldron::GetDynamicBufferPool()->GetResource(), sizeof(Mat4), 0);
-        
-        // Bind instance buffer to SRV - Shader Register t0  
-        m_pParameterSet->SetBufferSRV(m_pStemInstanceBuffer, 0);
 
         // Create Pipeline State Object
         cauldron::PipelineDesc psoDesc;
@@ -150,11 +100,14 @@ struct IvyRenderIndirect
     }
 
     void Render(const Mat4& viewProjectionMatrix,
+                const cauldron::Buffer* pArgumentBuffer,  // Now passed from IvyRenderModule
                 const std::vector<const cauldron::Buffer*>* pVertexBuffers = nullptr, 
                 const std::vector<const cauldron::Buffer*>* pIndexBuffers = nullptr,
                 int ivyLeafSurfaceIndex = -1,
                 int ivyStemSurfaceIndex = -1,
-                const std::vector<Surface_Info>* pSurfaceBuffer = nullptr)
+                const std::vector<Surface_Info>* pSurfaceBuffer = nullptr,
+                const cauldron::Buffer* pStemInstanceBuffer = nullptr,
+                const cauldron::Buffer* pLeafInstanceBuffer = nullptr)
     {
         static bool sLoggedOnce = false;
         if (!sLoggedOnce)
@@ -163,7 +116,7 @@ struct IvyRenderIndirect
             sLoggedOnce = true;
         }
 
-        if (!m_pIndirectWorkload || !m_pArgsBuffer || !m_pPipelineObject)
+        if (!m_pIndirectWorkload || !pArgumentBuffer || !m_pPipelineObject)
             return;
 
         cauldron::CommandList* pCmdList = cauldron::GetFramework()->GetActiveCommandList();
@@ -183,78 +136,11 @@ struct IvyRenderIndirect
         // Bind our own ParameterSet with ViewProjection CBV and Instance Buffer SRV
         m_pParameterSet->Bind(pCmdList, m_pPipelineObject);
 
-        // Prepare draw arguments for leaf and stem
-        DrawIndexedArgs drawCommands[2] = {};
-        int validDrawCommands = 0;
-
-        // Set up vertex and index buffers and prepare draw commands
-        if (pVertexBuffers && pIndexBuffers && pSurfaceBuffer)
-        {
-            // Handle leaf geometry (index 0)
-            if (ivyLeafSurfaceIndex >= 0 && ivyLeafSurfaceIndex < static_cast<int>(pSurfaceBuffer->size()))
-            {
-                const Surface_Info& leafSurfaceInfo = (*pSurfaceBuffer)[ivyLeafSurfaceIndex];
-                
-                if (leafSurfaceInfo.position_attribute_offset >= 0 && 
-                    leafSurfaceInfo.position_attribute_offset < static_cast<int>(pVertexBuffers->size()) &&
-                    leafSurfaceInfo.normal_attribute_offset >= 0 && 
-                    leafSurfaceInfo.normal_attribute_offset < static_cast<int>(pVertexBuffers->size()) &&
-                    leafSurfaceInfo.index_offset >= 0 && 
-                    leafSurfaceInfo.index_offset < static_cast<int>(pIndexBuffers->size()))
-                {
-                    drawCommands[0].IndexCountPerInstance = leafSurfaceInfo.num_indices;
-                    drawCommands[0].InstanceCount = 2;  // Render 2 leaf instances
-                    drawCommands[0].StartIndexLocation = 0;
-                    drawCommands[0].BaseVertexLocation = 0;
-                    drawCommands[0].StartInstanceLocation = 0;
-                    validDrawCommands++;
-
-                    cauldron::CauldronWarning(L"[IvyRenderIndirect] Leaf geometry prepared: indices=%d", leafSurfaceInfo.num_indices);
-                }
-            }
-
-            // Handle stem geometry (index 1)
-            if (ivyStemSurfaceIndex >= 0 && ivyStemSurfaceIndex < static_cast<int>(pSurfaceBuffer->size()))
-            {
-                const Surface_Info& stemSurfaceInfo = (*pSurfaceBuffer)[ivyStemSurfaceIndex];
-                
-                if (stemSurfaceInfo.position_attribute_offset >= 0 && 
-                    stemSurfaceInfo.position_attribute_offset < static_cast<int>(pVertexBuffers->size()) &&
-                    stemSurfaceInfo.normal_attribute_offset >= 0 && 
-                    stemSurfaceInfo.normal_attribute_offset < static_cast<int>(pVertexBuffers->size()) &&
-                    stemSurfaceInfo.index_offset >= 0 && 
-                    stemSurfaceInfo.index_offset < static_cast<int>(pIndexBuffers->size()))
-                {
-                    drawCommands[1].IndexCountPerInstance = stemSurfaceInfo.num_indices;
-                    drawCommands[1].InstanceCount = 2;  // Render 2 instances
-                    drawCommands[1].StartIndexLocation = 0;
-                    drawCommands[1].BaseVertexLocation = 0;
-                    drawCommands[1].StartInstanceLocation = 2;  // Start from instance index 2
-                    validDrawCommands = 2; // We have both leaf and stem
-
-                    cauldron::CauldronWarning(L"[IvyRenderIndirect] Stem geometry prepared: indices=%d", stemSurfaceInfo.num_indices);
-                }
-            }
-        }
-
-        // Update argument buffer with both draw commands
-        if (validDrawCommands > 0)
-        {
-            m_pArgsBuffer->CopyData(drawCommands, sizeof(DrawIndexedArgs) * 2);
-            cauldron::CauldronWarning(L"[IvyRenderIndirect] Updated argument buffer with %d draw commands", validDrawCommands);
-        }
-
-        // Ensure argument buffer is ready for indirect argument usage
-        if (!m_argsReady)
-        {
-            cauldron::Barrier barrier = cauldron::Barrier::Transition(
-                m_pArgsBuffer->GetResource(), cauldron::ResourceState::CopyDest, cauldron::ResourceState::IndirectArgument);
-            cauldron::ResourceBarrier(pCmdList, 1, &barrier);
-            m_argsReady = true;
-        }
+        // Note: Argument buffer is now initialized by IvyRenderModule each frame
+        // and will be modified by work graph compute nodes via AtomicAdd operations
 
         // Execute leaf geometry if valid
-        if (validDrawCommands >= 1 && ivyLeafSurfaceIndex >= 0 && pVertexBuffers && pIndexBuffers && pSurfaceBuffer)
+        if (ivyLeafSurfaceIndex >= 0 && pVertexBuffers && pIndexBuffers && pSurfaceBuffer)
         {
             const Surface_Info& leafSurfaceInfo = (*pSurfaceBuffer)[ivyLeafSurfaceIndex];
             
@@ -268,15 +154,16 @@ struct IvyRenderIndirect
             cauldron::BufferAddressInfo indexBufferInfo = (*pIndexBuffers)[leafSurfaceInfo.index_offset]->GetAddressInfo();
             cauldron::SetIndexBuffer(pCmdList, &indexBufferInfo);
 
-            m_pParameterSet->SetBufferSRV(m_pLeafInstanceBuffer, 0);
+            if (pLeafInstanceBuffer)
+                m_pParameterSet->SetBufferSRV(pLeafInstanceBuffer, 0);
 
             // Execute first draw command (leaf) using offset 0
-            cauldron::ExecuteIndirect(pCmdList, m_pIndirectWorkload, m_pArgsBuffer, 1 /*drawCount*/, 0 /*offset*/);
+            cauldron::ExecuteIndirect(pCmdList, m_pIndirectWorkload, pArgumentBuffer, 1 /*drawCount*/, 0 /*offset*/);
             cauldron::CauldronWarning(L"[IvyRenderIndirect] Executed leaf geometry");
         }
 
         // Execute stem geometry if valid
-        if (validDrawCommands >= 2 && ivyStemSurfaceIndex >= 0 && pVertexBuffers && pIndexBuffers && pSurfaceBuffer)
+        if (ivyStemSurfaceIndex >= 0 && pVertexBuffers && pIndexBuffers && pSurfaceBuffer)
         {
             const Surface_Info& stemSurfaceInfo = (*pSurfaceBuffer)[ivyStemSurfaceIndex];
             
@@ -290,10 +177,11 @@ struct IvyRenderIndirect
             cauldron::BufferAddressInfo indexBufferInfo = (*pIndexBuffers)[stemSurfaceInfo.index_offset]->GetAddressInfo();
             cauldron::SetIndexBuffer(pCmdList, &indexBufferInfo);
 
-            m_pParameterSet->SetBufferSRV(m_pStemInstanceBuffer, 0);
+            if (pStemInstanceBuffer)
+                m_pParameterSet->SetBufferSRV(pStemInstanceBuffer, 0);
 
             // Execute second draw command (stem) using offset sizeof(DrawIndexedArgs)
-            cauldron::ExecuteIndirect(pCmdList, m_pIndirectWorkload, m_pArgsBuffer, 1 /*drawCount*/, sizeof(DrawIndexedArgs) /*offset*/);
+            cauldron::ExecuteIndirect(pCmdList, m_pIndirectWorkload, pArgumentBuffer, 1 /*drawCount*/, sizeof(DrawIndexedArgs) /*offset*/);
             cauldron::CauldronWarning(L"[IvyRenderIndirect] Executed stem geometry");
         }
     }

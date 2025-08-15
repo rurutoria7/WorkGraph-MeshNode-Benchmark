@@ -30,8 +30,7 @@ PSInput VSMain(VSInput input)
     float4x4 instanceTransform = g_instance_data[input.InstanceID].transform;
     
     // Apply instance transform to vertex position
-    float4 localPosition = float4(input.Position * 10.0f, 1.0f);
-    localPosition.y += 3;
+    float4 localPosition = float4(input.Position, 1.0f);
     float4 worldSpacePosition = mul(instanceTransform, localPosition);
     
     output.Position = mul(ViewProjection, worldSpacePosition);

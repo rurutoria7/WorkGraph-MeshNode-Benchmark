@@ -70,6 +70,16 @@ IvyRenderModule::IvyRenderModule()
 
 IvyRenderModule::~IvyRenderModule()
 {
+    // Delete argument buffer
+    if (m_pArgumentBuffer)
+        delete m_pArgumentBuffer;
+
+    // Delete instance buffers
+    if (m_pStemInstanceBuffer)
+        delete m_pStemInstanceBuffer;
+    if (m_pLeafInstanceBuffer)
+        delete m_pLeafInstanceBuffer;
+
     // Delete work graph
     if (m_pWorkGraphStateObject)
         m_pWorkGraphStateObject->Release();
@@ -85,6 +95,41 @@ void IvyRenderModule::Init(const json& initData)
 {
     InitTextures();
     InitWorkGraphProgram();
+
+    // Create argument buffer for ExecuteIndirect (shared with work graph)
+    DrawIndexedArgs dummyArgs[2] = {};  // Two draw commands: leaf and stem
+    BufferDesc argsDesc = BufferDesc::Data(L"Ivy_ArgumentBuffer", sizeof(DrawIndexedArgs) * 2, sizeof(uint32_t), 0, ResourceFlags::AllowUnorderedAccess);
+    m_pArgumentBuffer = Buffer::CreateBufferResource(&argsDesc, ResourceState::CopyDest);
+    m_pArgumentBuffer->CopyData(dummyArgs, sizeof(dummyArgs));
+
+    // Create instance buffers as StructuredBuffer
+    const uint32_t maxInstances = 10000;
+    BufferDesc instanceDesc = BufferDesc::Data(L"Ivy_StemInstanceBuffer", sizeof(IvyInstanceData) * maxInstances, sizeof(IvyInstanceData), 0, ResourceFlags::AllowUnorderedAccess);
+    m_pStemInstanceBuffer = Buffer::CreateBufferResource(&instanceDesc, ResourceState::CopyDest);
+    instanceDesc.Name = L"Ivy_LeafInstanceBuffer";
+    m_pLeafInstanceBuffer = Buffer::CreateBufferResource(&instanceDesc, ResourceState::CopyDest);
+    
+    // Initialize instance data with dummy values arranged in rows
+    // Create grid pattern with space of 0.5 between instances
+    std::vector<IvyInstanceData> allInstances(maxInstances);
+    
+    const float spacing = 0.5f;
+    const uint32_t instancesPerRow = 1000; // 1000 instances per row
+    
+    for (uint32_t i = 0; i < maxInstances; ++i)
+    {
+        uint32_t row = i / instancesPerRow;
+        uint32_t col = i % instancesPerRow;
+        
+        float x = col * spacing - (instancesPerRow - 1) * spacing * 0.5f; // Center the row
+        float z = row * spacing;
+        
+        allInstances[i].transform = Mat4::translation(Vec3(x, 1.0f, z));
+    }
+    
+    // Upload instance data to buffer
+    m_pStemInstanceBuffer->CopyData(allInstances.data(), allInstances.size() * sizeof(IvyInstanceData));
+    m_pLeafInstanceBuffer->CopyData(allInstances.data(), allInstances.size() * sizeof(IvyInstanceData));
 
     m_ivyRenderIndirect.Init(m_pGBufferAlbedoOutput,
                              m_pGBufferNormalOutput,
@@ -202,11 +247,80 @@ void IvyRenderModule::Execute(double deltaTime, cauldron::CommandList* pCmdList)
     workGraphData.IvyStemSurfaceIndex    = m_ivyStemSurfaceIndex;
     workGraphData.IvyLeafSurfaceIndex    = m_ivyLeafSurfaceIndex;
 
+    // Initialize argument buffer for ExecuteIndirect each frame
+    {
+        // Static member to track first frame
+        static bool isFirstFrame = true;
+        
+        // Check if surface indices are valid before proceeding
+        if (m_ivyLeafSurfaceIndex < 0 || m_ivyStemSurfaceIndex < 0 ||
+            m_RTInfoTables.m_cpuSurfaceBuffer.empty())
+        {
+            // Surface data not loaded yet, skip argument buffer initialization
+            // but continue with the rest of the rendering pipeline
+            EndRaster(pCmdList, nullptr);
+
+            // Transition render targets back to readable state
+            for (auto& barrier : barriers)
+            {
+                std::swap(barrier.DestState, barrier.SourceState);
+            }
+            ResourceBarrier(pCmdList, static_cast<uint32_t>(barriers.size()), barriers.data());
+            return;
+        }
+        
+        // Add barrier: Indirect -> Copy Dest (skip on first frame)
+        if (!isFirstFrame)
+        {
+            Barrier argBufferBarrier = Barrier::Transition(m_pArgumentBuffer->GetResource(), 
+                                                           ResourceState::IndirectArgument, 
+                                                           ResourceState::CopyDest);
+            ResourceBarrier(pCmdList, 1, &argBufferBarrier);
+        }
+
+        // Initialize argument buffer with correct vertex counts and zero instance counts
+        DrawIndexedArgs initArgs[2] = {};
+        
+        // Initialize leaf draw command (index 0)
+        if (m_ivyLeafSurfaceIndex >= 0 && m_ivyLeafSurfaceIndex < static_cast<int>(m_RTInfoTables.m_cpuSurfaceBuffer.size()))
+        {
+            const Surface_Info& leafSurface = m_RTInfoTables.m_cpuSurfaceBuffer[m_ivyLeafSurfaceIndex];
+            initArgs[0].IndexCountPerInstance = leafSurface.num_indices;
+            initArgs[0].InstanceCount = 100;  // Fixed count for stable rendering
+            initArgs[0].StartIndexLocation = 0;
+            initArgs[0].BaseVertexLocation = 0;
+            initArgs[0].StartInstanceLocation = 0;
+        }
+        
+        // Initialize stem draw command (index 1)  
+        if (m_ivyStemSurfaceIndex >= 0 && m_ivyStemSurfaceIndex < static_cast<int>(m_RTInfoTables.m_cpuSurfaceBuffer.size()))
+        {
+            const Surface_Info& stemSurface = m_RTInfoTables.m_cpuSurfaceBuffer[m_ivyStemSurfaceIndex];
+            initArgs[1].IndexCountPerInstance = stemSurface.num_indices;
+            initArgs[1].InstanceCount = 100;  // Fixed count for stable rendering
+            initArgs[1].StartIndexLocation = 0;
+            initArgs[1].BaseVertexLocation = 0;
+            initArgs[1].StartInstanceLocation = 0;  // All instances start from 0
+        }
+
+        // Copy initialized argument data
+        m_pArgumentBuffer->CopyData(initArgs, sizeof(initArgs));
+
+        // Add barrier: Copy Dest -> Unordered Access
+        Barrier argBufferBarrier2 = Barrier::Transition(m_pArgumentBuffer->GetResource(),
+                                                        ResourceState::CopyDest,
+                                                        ResourceState::UnorderedAccess);
+        ResourceBarrier(pCmdList, 1, &argBufferBarrier2);
+        
+        isFirstFrame = false;
+    }
+
     BufferAddressInfo workGraphDataInfo = GetDynamicBufferPool()->AllocConstantBuffer(sizeof(WorkGraphCBData), &workGraphData);
     m_pWorkGraphParameterSet->UpdateRootConstantBuffer(&workGraphDataInfo, 0);
-
+    
+    m_pWorkGraphParameterSet->SetBufferUAV(m_pArgumentBuffer, 0); // Bind argument buffer to u0
     m_pWorkGraphParameterSet->SetAccelerationStructure(GetScene()->GetASManager()->GetTLAS(), 0);
-
+    
     // Bind all the parameters
     m_pWorkGraphParameterSet->Bind(pCmdList, nullptr);
 
@@ -246,13 +360,24 @@ void IvyRenderModule::Execute(double deltaTime, cauldron::CommandList* pCmdList)
         m_WorkGraphProgramDesc.WorkGraph.Flags &= ~D3D12_SET_WORK_GRAPH_FLAG_INITIALIZE;
     }
 
+    // Add barrier: Unordered Access -> Indirect Argument
+    {
+        Barrier argBufferBarrier = Barrier::Transition(m_pArgumentBuffer->GetResource(),
+                                                       ResourceState::UnorderedAccess,
+                                                       ResourceState::IndirectArgument);
+        ResourceBarrier(pCmdList, 1, &argBufferBarrier);
+    }
+
     // Indirect draw ivy  
     m_ivyRenderIndirect.Render(workGraphData.ViewProjection,
+                               m_pArgumentBuffer,  // Pass argument buffer
                                &m_RTInfoTables.m_VertexBuffers, 
                                &m_RTInfoTables.m_IndexBuffers, 
                                m_ivyLeafSurfaceIndex,
                                m_ivyStemSurfaceIndex,
-                               &m_RTInfoTables.m_cpuSurfaceBuffer);
+                               &m_RTInfoTables.m_cpuSurfaceBuffer,
+                               m_pStemInstanceBuffer,
+                               m_pLeafInstanceBuffer);
 
     EndRaster(pCmdList, nullptr);
 
@@ -290,6 +415,7 @@ void IvyRenderModule::InitWorkGraphProgram()
     // Create root signature for work graph
     RootSignatureDesc workGraphRootSigDesc;
     workGraphRootSigDesc.AddConstantBufferView(0, ShaderBindStage::Compute, 1);
+    workGraphRootSigDesc.AddBufferUAVSet(0, ShaderBindStage::Compute, 1); // u0 binding for argument buffer
     workGraphRootSigDesc.AddRTAccelerationStructureSet(0, ShaderBindStage::Compute, 1);
 
     workGraphRootSigDesc.AddBufferSRVSet(RAYTRACING_INFO_BEGIN_SLOT + 0, ShaderBindStage::Compute, 1);

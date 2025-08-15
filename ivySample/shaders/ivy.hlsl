@@ -22,6 +22,9 @@
 #include "common.hlsl"
 #include "raytracing.hlsl"
 
+// UAV binding for argument buffer (u0)
+RWStructuredBuffer<DrawIndexedArgs> g_argumentBuffer : register(u0);
+
 static const uint ivyWaveSize = 32;
 
 static const uint ivyMaxRecursion      = 12;
@@ -322,7 +325,16 @@ void IvyBranch(
 
     GroupMemoryBarrierWithGroupSync();
 
-    // sync groupshared counters to records
+    // Temporarily disable atomic operations for stable rendering
+    // Test: Use direct assignment instead of Atomic Add to avoid overflow
+    // if (writingThread)  // Only first lane of each wave executes this
+    // {        
+    //     // Assign fixed instance counts directly instead of atomic add
+    //     g_argumentBuffer[0].InstanceCount = 100;  // Leaf instances - fixed count
+    //     g_argumentBuffer[1].InstanceCount = 100;  // Stem instances - fixed count
+    // }
+
+    // Keep original mesh node outputs for compatibility (they will be ignored)
     ivyStemOutputRecord.Get().stemCount = outputStemCount;
     ivyLeafOutputRecord.Get().leafCount = outputLeafCount;
 
