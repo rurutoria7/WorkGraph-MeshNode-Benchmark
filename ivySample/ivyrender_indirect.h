@@ -99,7 +99,8 @@ struct IvyRenderIndirect
         cauldron::CauldronWarning(L"[IvyRenderIndirect] Init() completed: PSO and dummy args created");
     }
 
-    void Render(const Mat4& viewProjectionMatrix,
+    void Render(cauldron::CommandList* pCmdList,  // Pass command list to ensure consistency
+                const Mat4& viewProjectionMatrix,
                 const cauldron::Buffer* pArgumentBuffer,  // Now passed from IvyRenderModule
                 const std::vector<const cauldron::Buffer*>* pVertexBuffers = nullptr, 
                 const std::vector<const cauldron::Buffer*>* pIndexBuffers = nullptr,
@@ -119,7 +120,7 @@ struct IvyRenderIndirect
         if (!m_pIndirectWorkload || !pArgumentBuffer || !m_pPipelineObject)
             return;
 
-        cauldron::CommandList* pCmdList = cauldron::GetFramework()->GetActiveCommandList();
+        // Use the passed command list from IvyRenderModule to ensure consistency
         if (!pCmdList)
             return;
 

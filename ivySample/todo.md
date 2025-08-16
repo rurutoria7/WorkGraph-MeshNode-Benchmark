@@ -52,78 +52,46 @@
 制定計劃，為 ExecuteIndirect 的 pass 獨立出一個 root signature。
 ```
 
-2. [x] Draw 2 Instance with Stem & Leaf (both)
-    - 2 instance buffer
-        - On Init
-            - [ ] Create another instance buffer
-        - Execute
-            - Add a binding
+## Goal 3: Modify from Work Graph 
 
+1. [solved] Bug: IvyBranch Shader Cannot Change "Argument"
 
-## Goal 3: Compute Node Write Instance Buffer & Args Buffer
+- 整理 Arg 的 resource state
+    - First: Skip IA to CD
+    - Following: IA --> CD --> (Init) --> UA --> (WG) --> IA --> (ID)
 
-1. Only Modify the Instance Count
-    - from work graph's last compute node, AtomicAdd "Argument Buffer"
-        - Buffer 
-            - [ ] Argument Buffer should be member of "ivyrendermodule"
-            - [ ] Initialize: Every Frame it should be initialized with correct e.g. VertexCount and 0 in Instance Count
-                - use command to copy
-            - [ ] Resource Barrier:
-                1. not first time: Indirect --> Copy Dest
-                2. Initialze argument buffer with Copy Command
-                3. CopyDest --> Unorded Access
-                4. Dispatch Graph()
-                5. Unordered Access --> Indirect
-        - Referencing in HLSL
-            - [ ] StructuredBuffer<IndirectCommand>, so IndirectCommand structure's declaration should be moved to "ivycommon.h"
-            - [ ] in "ivy.hlsl" group 0-3: leaf add 1, leaf add 1, stem add 1, stem add 1, totaly 4 instance
-        - Root Signature
-            - Should Modify Work Graph's Root Signature
-            - Instead of Native API, Caldron's API ParameterSet should be used.
-            1. [ ] Figure out available Register Index
-            2. [ ] Modify Root Signature creation, add a UAV
-            3. [ ] Bind argument buffer once
-    - We should see 4 instance on the screen
-
-
-2. Atomic Add Instance Count
-    - Fill instance_buffer by CPU, on Init
-        - Fill with dummy values, let instance are arranged in a rows and rows
-            - the space between every instance can be like e.g. 0.5
-    - In ivy.hlsl --> IvyBranch(), every Wave should Add Instance Count by 1
-        - So that we can see Atomic Add is working as we expected
-
+```c
+(WG)----+ 2. write
+        |
+        V
+[Arg Buffer]     <------ (CPU) 1. init
+[Inst Buffer]
+   ^
+   |    3. read
+(I.D.)
 ```
-做一個調整，就是把 instance transform 往上移動 1.
-然後把 instance count 調整到 10000
+- 猜測：並不是沒看到，只是因為數量設定不對
+    - Per frame Initialize: 一排十個，渲染 20 個
+    - Work Graph: Atomic Add + 1
+    - 結果, 有 Atomic Add 就不行！
 
-把 atomic add 放回來
-把一個 row 改成 1000 instance
+- Barrier 的範圍是 CmdList 嗎？
+    - 排除
+- Barrier 用錯了嗎？所以不能保證順序。
+    - 排除
 
-bug: 加上 atomic add 之後，instance 還是不見了。
-檢查方向：
-- resource barrier 問題
-- 先假設 ivyBranch 都有執行到
-- 也可以提出一些實驗來排除可能性
-- 
+- profile
+    - 最後 Leaf 的 Draw call 是 Draw(instance count = 2436), 4359
+    - 最後 Stem 的 Draw call 是 Draw(instance count = 2436), 
 
+2. [solved] Bug: instance count 數量不穩定
+    - 有時候是 2436, 2388
 
-把取得的知識，還有新做的更改，總結到 CLAUD.md。
-另外檢查 CLAUD.md 有沒有 out of date 的內容。
-```
+3. 有時候會整個閃一下
+    - 移除 ArgumentBuffer 從 CPU 初始化的 code
+    - 在 Entry Node，把 InstanceCount 設定成 0，把 IndicesCount 設定成正確的數值
 
-
-- update CLAUDE.md
-
-```
-understand these files, especially
-1. resource creation, binding, barrier
-2. life cycle of this render module
-3. render pass, what resource is involved
-4. API Usage
-
-key files are #ivyrendermodule #ivyrender_indirect
-```
+4. 
 
 3. Try to write transform
 

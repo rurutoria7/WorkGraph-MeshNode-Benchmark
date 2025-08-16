@@ -98,7 +98,7 @@ void IvyRenderModule::Init(const json& initData)
 
     // Create argument buffer for ExecuteIndirect (shared with work graph)
     DrawIndexedArgs dummyArgs[2] = {};  // Two draw commands: leaf and stem
-    BufferDesc argsDesc = BufferDesc::Data(L"Ivy_ArgumentBuffer", sizeof(DrawIndexedArgs) * 2, sizeof(uint32_t), 0, ResourceFlags::AllowUnorderedAccess);
+    BufferDesc argsDesc = BufferDesc::Data(L"Ivy_ArgumentBuffer", sizeof(DrawIndexedArgs) * 2, sizeof(DrawIndexedArgs), 0, ResourceFlags::AllowUnorderedAccess);
     m_pArgumentBuffer = Buffer::CreateBufferResource(&argsDesc, ResourceState::CopyDest);
     m_pArgumentBuffer->CopyData(dummyArgs, sizeof(dummyArgs));
 
@@ -114,7 +114,7 @@ void IvyRenderModule::Init(const json& initData)
     std::vector<IvyInstanceData> allInstances(maxInstances);
     
     const float spacing = 0.5f;
-    const uint32_t instancesPerRow = 1000; // 1000 instances per row
+    const uint32_t instancesPerRow = 10; // 1000 instances per row
     
     for (uint32_t i = 0; i < maxInstances; ++i)
     {
@@ -309,7 +309,7 @@ void IvyRenderModule::Execute(double deltaTime, cauldron::CommandList* pCmdList)
         // Add barrier: Copy Dest -> Unordered Access
         Barrier argBufferBarrier2 = Barrier::Transition(m_pArgumentBuffer->GetResource(),
                                                         ResourceState::CopyDest,
-                                                        ResourceState::UnorderedAccess);
+                                                           ResourceState::UnorderedAccess);
         ResourceBarrier(pCmdList, 1, &argBufferBarrier2);
         
         isFirstFrame = false;
@@ -369,7 +369,8 @@ void IvyRenderModule::Execute(double deltaTime, cauldron::CommandList* pCmdList)
     }
 
     // Indirect draw ivy  
-    m_ivyRenderIndirect.Render(workGraphData.ViewProjection,
+    m_ivyRenderIndirect.Render(pCmdList,  // Pass command list for consistency
+                               workGraphData.ViewProjection,
                                m_pArgumentBuffer,  // Pass argument buffer
                                &m_RTInfoTables.m_VertexBuffers, 
                                &m_RTInfoTables.m_IndexBuffers, 
