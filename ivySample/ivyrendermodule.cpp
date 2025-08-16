@@ -99,8 +99,8 @@ void IvyRenderModule::Init(const json& initData)
     // Create argument buffer for ExecuteIndirect (shared with work graph)
     DrawIndexedArgs dummyArgs[2] = {};  // Two draw commands: leaf and stem
     BufferDesc argsDesc = BufferDesc::Data(L"Ivy_ArgumentBuffer", sizeof(DrawIndexedArgs) * 2, sizeof(DrawIndexedArgs), 0, ResourceFlags::AllowUnorderedAccess);
-    m_pArgumentBuffer = Buffer::CreateBufferResource(&argsDesc, ResourceState::CopyDest);
-    m_pArgumentBuffer->CopyData(dummyArgs, sizeof(dummyArgs));
+    m_pArgumentBuffer = Buffer::CreateBufferResource(&argsDesc, ResourceState::IndirectArgument);
+    // Note: Initial data will be set by Entry Node in work graph, not by CPU
 
     // Create instance buffers as StructuredBuffer
     const uint32_t maxInstances = 10000;
@@ -247,72 +247,12 @@ void IvyRenderModule::Execute(double deltaTime, cauldron::CommandList* pCmdList)
     workGraphData.IvyStemSurfaceIndex    = m_ivyStemSurfaceIndex;
     workGraphData.IvyLeafSurfaceIndex    = m_ivyLeafSurfaceIndex;
 
-    // Initialize argument buffer for ExecuteIndirect each frame
+    // Transition argument buffer: IndirectArgument -> UnorderedAccess for work graph
     {
-        // Static member to track first frame
-        static bool isFirstFrame = true;
-        
-        // Check if surface indices are valid before proceeding
-        if (m_ivyLeafSurfaceIndex < 0 || m_ivyStemSurfaceIndex < 0 ||
-            m_RTInfoTables.m_cpuSurfaceBuffer.empty())
-        {
-            // Surface data not loaded yet, skip argument buffer initialization
-            // but continue with the rest of the rendering pipeline
-            EndRaster(pCmdList, nullptr);
-
-            // Transition render targets back to readable state
-            for (auto& barrier : barriers)
-            {
-                std::swap(barrier.DestState, barrier.SourceState);
-            }
-            ResourceBarrier(pCmdList, static_cast<uint32_t>(barriers.size()), barriers.data());
-            return;
-        }
-        
-        // Add barrier: Indirect -> Copy Dest (skip on first frame)
-        if (!isFirstFrame)
-        {
-            Barrier argBufferBarrier = Barrier::Transition(m_pArgumentBuffer->GetResource(), 
-                                                           ResourceState::IndirectArgument, 
-                                                           ResourceState::CopyDest);
-            ResourceBarrier(pCmdList, 1, &argBufferBarrier);
-        }
-
-        // Initialize argument buffer with correct vertex counts and zero instance counts
-        DrawIndexedArgs initArgs[2] = {};
-        
-        // Initialize leaf draw command (index 0)
-        if (m_ivyLeafSurfaceIndex >= 0 && m_ivyLeafSurfaceIndex < static_cast<int>(m_RTInfoTables.m_cpuSurfaceBuffer.size()))
-        {
-            const Surface_Info& leafSurface = m_RTInfoTables.m_cpuSurfaceBuffer[m_ivyLeafSurfaceIndex];
-            initArgs[0].IndexCountPerInstance = leafSurface.num_indices;
-            initArgs[0].InstanceCount = 100;  // Fixed count for stable rendering
-            initArgs[0].StartIndexLocation = 0;
-            initArgs[0].BaseVertexLocation = 0;
-            initArgs[0].StartInstanceLocation = 0;
-        }
-        
-        // Initialize stem draw command (index 1)  
-        if (m_ivyStemSurfaceIndex >= 0 && m_ivyStemSurfaceIndex < static_cast<int>(m_RTInfoTables.m_cpuSurfaceBuffer.size()))
-        {
-            const Surface_Info& stemSurface = m_RTInfoTables.m_cpuSurfaceBuffer[m_ivyStemSurfaceIndex];
-            initArgs[1].IndexCountPerInstance = stemSurface.num_indices;
-            initArgs[1].InstanceCount = 100;  // Fixed count for stable rendering
-            initArgs[1].StartIndexLocation = 0;
-            initArgs[1].BaseVertexLocation = 0;
-            initArgs[1].StartInstanceLocation = 0;  // All instances start from 0
-        }
-
-        // Copy initialized argument data
-        // m_pArgumentBuffer->CopyData(initArgs, sizeof(initArgs));
-
-        // Add barrier: Copy Dest -> Unordered Access
-        Barrier argBufferBarrier2 = Barrier::Transition(m_pArgumentBuffer->GetResource(),
-                                                        ResourceState::CopyDest,
-                                                           ResourceState::UnorderedAccess);
-        ResourceBarrier(pCmdList, 1, &argBufferBarrier2);
-        
-        isFirstFrame = false;
+        Barrier argBufferBarrier = Barrier::Transition(m_pArgumentBuffer->GetResource(),
+                                                       ResourceState::IndirectArgument,
+                                                       ResourceState::UnorderedAccess);
+        ResourceBarrier(pCmdList, 1, &argBufferBarrier);
     }
 
     BufferAddressInfo workGraphDataInfo = GetDynamicBufferPool()->AllocConstantBuffer(sizeof(WorkGraphCBData), &workGraphData);

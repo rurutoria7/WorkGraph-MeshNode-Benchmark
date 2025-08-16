@@ -92,10 +92,17 @@
         1. Entry Node 在 area.hlsl
         2. argument buffer 綁定直接移動到 raytracing.hlsl，所以 ivy.hlsl 和 area.hlsl 都 access 的到
         3. 列出修改的計劃，跟我確認
-        4. 還要移除 COPY_DEST 的 Resource state transition
-        5. 改成 Atomic Add 
+        4. 還要移除 argument buffer 的 COPY_DEST Resource state transition
+            - Init state: Indirect Argument
+            - Every Frame: Indirect Argument --> Unordered Access --> (Work Graph) --> Indirect Argument --> (Execute Indirect)
+        5. 改成 Atomic Add
 
 3. Try to write transform
+    - Work Graph should bind "leaf instance buffer"
+        - modify root signature
+        - 
+    - Try to move all instance by 2, y axis
+        - every group's first thread do atomic add, and it should translate those instance it just allocated.
 
 4. Write correct transform
 
