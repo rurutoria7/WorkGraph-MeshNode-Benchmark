@@ -114,7 +114,7 @@ void IvyRenderModule::Init(const json& initData)
     std::vector<IvyInstanceData> allInstances(maxInstances);
     
     const float spacing = 0.5f;
-    const uint32_t instancesPerRow = 10; // 1000 instances per row
+    const uint32_t instancesPerRow = 1000;
     
     for (uint32_t i = 0; i < maxInstances; ++i)
     {
@@ -304,7 +304,7 @@ void IvyRenderModule::Execute(double deltaTime, cauldron::CommandList* pCmdList)
         }
 
         // Copy initialized argument data
-        m_pArgumentBuffer->CopyData(initArgs, sizeof(initArgs));
+        // m_pArgumentBuffer->CopyData(initArgs, sizeof(initArgs));
 
         // Add barrier: Copy Dest -> Unordered Access
         Barrier argBufferBarrier2 = Barrier::Transition(m_pArgumentBuffer->GetResource(),

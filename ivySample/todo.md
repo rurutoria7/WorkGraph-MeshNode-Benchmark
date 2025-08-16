@@ -88,10 +88,12 @@
     - 有時候是 2436, 2388
 
 3. 有時候會整個閃一下
-    - 移除 ArgumentBuffer 從 CPU 初始化的 code
-    - 在 Entry Node，把 InstanceCount 設定成 0，把 IndicesCount 設定成正確的數值
-
-4. 
+    - 在 In Entry Node，把 InstanceCount 設定成 0，把 IndicesCount 設定成正確的數值
+        1. Entry Node 在 area.hlsl
+        2. argument buffer 綁定直接移動到 raytracing.hlsl，所以 ivy.hlsl 和 area.hlsl 都 access 的到
+        3. 列出修改的計劃，跟我確認
+        4. 還要移除 COPY_DEST 的 Resource state transition
+        5. 改成 Atomic Add 
 
 3. Try to write transform
 
