@@ -322,11 +322,30 @@ void IvyBranch(
 
     GroupMemoryBarrierWithGroupSync();
 
-    if (groupThreadId == 0)  // Only group's first thread this
+    if (groupThreadId == 0)  // Only group's first thread handles writing to instance buffers
     {        
-        // Atomic add the generated instance counts to argument buffer
-        InterlockedAdd(g_argumentBuffer[0].InstanceCount, outputLeafCount);  // Leaf instances
-        InterlockedAdd(g_argumentBuffer[1].InstanceCount, outputStemCount);  // Stem instances
+        // Get starting index for writing leaf instances
+        uint leafInstanceStartIndex;
+        InterlockedAdd(g_argumentBuffer[0].InstanceCount, outputLeafCount, leafInstanceStartIndex);
+        
+        // Write all leaf transforms to the instance buffer
+        for (uint leafIdx = 0; leafIdx < outputLeafCount; leafIdx++)
+        {
+            float3x4 leafTransform = ivyLeafOutputRecord.Get().transform[leafIdx];
+            
+            // Convert 3x4 matrix to 4x4 matrix for IvyInstanceData
+            float4x4 fullTransform = float4x4(
+                leafTransform._m00, leafTransform._m01, leafTransform._m02, leafTransform._m03,
+                leafTransform._m10, leafTransform._m11, leafTransform._m12, leafTransform._m13,
+                leafTransform._m20, leafTransform._m21, leafTransform._m22, leafTransform._m23,
+                0.0f,               0.0f,               0.0f,               1.0f
+            );
+            
+            g_leafInstanceBuffer[leafInstanceStartIndex + leafIdx].transform = fullTransform;
+        }
+        
+        // Still update stem count for compatibility (though we don't use stem rendering)
+        // InterlockedAdd(g_argumentBuffer[1].InstanceCount, outputStemCount);  // Commented out for stem-only test
     }
 
     // Keep original mesh node outputs for compatibility (they will be ignored)

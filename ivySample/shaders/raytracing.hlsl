@@ -24,7 +24,11 @@
 RaytracingAccelerationStructure Tlas : register(t0);
 
 // UAV binding for argument buffer (u0) - shared between work graph nodes
-RWStructuredBuffer<DrawIndexedArgs> g_argumentBuffer : register(u0);
+globallycoherent RWStructuredBuffer<DrawIndexedArgs> g_argumentBuffer : register(u0);
+
+// UAV bindings for instance buffers - allow work graph to write transforms
+globallycoherent RWStructuredBuffer<IvyInstanceData> g_leafInstanceBuffer : register(u1);
+globallycoherent RWStructuredBuffer<IvyInstanceData> g_stemInstanceBuffer : register(u2);
 
 StructuredBuffer<Material_Info> g_material_info : DECLARE_SRV(RAYTRACING_INFO_MATERIAL);
 StructuredBuffer<Instance_Info> g_instance_info : DECLARE_SRV(RAYTRACING_INFO_INSTANCE);

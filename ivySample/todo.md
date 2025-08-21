@@ -98,11 +98,36 @@
         5. 改成 Atomic Add
 
 3. Try to write transform
-    - Work Graph should bind "leaf instance buffer"
-        - modify root signature
-        - 
-    - Try to move all instance by 2, y axis
-        - every group's first thread do atomic add, and it should translate those instance it just allocated.
+    - [bug] Try to move all instance to (0, 2, 0)
+        - workgraph bind instance buffer 有問題 [x]
+            - 2 buffer creation
+                - CopyData 把資料改掉了
+        - 修改 instance buffer 時，邏輯有問題
+            - [ ] 每次都是後面的 instance沒有被改到！
+        - barrier 有問題
+            - DeviceMemory, Fence, globallycoherent, ...
+        - 讀取 instance buffer 渲染時有問題
+    - [bug] 如果每個 thread group +1 argument 會導致每次渲染的數量不一樣
+        - [x] 可能 coalescing 不太一定，但是如果加 output instance count 就一樣了
+
+4. [ ] debug: 可以寫 original transform，但是有 bug:
+    - bug:
+        1. stem 的 transform 應該是對的，leaf 的 transform 大致上正確但是都有一點偏移。
+        2. instance 會閃爍
+        3. 有很大部分的 instance，從某個編號以後，就沒有被修改到。
+    - 檢查：
+        1. [ ] 在 @ivyleafrender.hlsl 裡面， leaf 套用 transform 的邏輯，是不是和我們目前一致
+        2. [x] barrier 是否設置正確，或有其他因素導致 barrier 沒有正常工作
+        3. [x] InterlockedAdd 的使用方式是否正確
+        4. [ ] @ivy.hlsl 寫入 instance 的邏輯錯誤
+    - 一個重要的線索是，leaf 是錯的但是 stem 是正常的。那如果單獨修改 leaf 呢？
+
+```
+AtomicAdd(argument[LEAF].InstanceCount, outputStemCount, orignalCount);
+if isFirstThreadInGroup():
+    for i = 0, 1, ..., outputStemCount:
+        LeafInstance[i + originalCount].transform *= TranslateMatrix(0, 2, 0)
+```
 
 4. Write correct transform
 

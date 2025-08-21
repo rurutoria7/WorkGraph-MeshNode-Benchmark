@@ -75,8 +75,8 @@ IvyRenderModule::~IvyRenderModule()
         delete m_pArgumentBuffer;
 
     // Delete instance buffers
-    if (m_pStemInstanceBuffer)
-        delete m_pStemInstanceBuffer;
+    // if (m_pStemInstanceBuffer)
+    //     delete m_pStemInstanceBuffer;
     if (m_pLeafInstanceBuffer)
         delete m_pLeafInstanceBuffer;
 
@@ -103,33 +103,23 @@ void IvyRenderModule::Init(const json& initData)
     // Note: Initial data will be set by Entry Node in work graph, not by CPU
 
     // Create instance buffers as StructuredBuffer
-    const uint32_t maxInstances = 10000;
-    BufferDesc instanceDesc = BufferDesc::Data(L"Ivy_StemInstanceBuffer", sizeof(IvyInstanceData) * maxInstances, sizeof(IvyInstanceData), 0, ResourceFlags::AllowUnorderedAccess);
-    m_pStemInstanceBuffer = Buffer::CreateBufferResource(&instanceDesc, ResourceState::CopyDest);
-    instanceDesc.Name = L"Ivy_LeafInstanceBuffer";
-    m_pLeafInstanceBuffer = Buffer::CreateBufferResource(&instanceDesc, ResourceState::CopyDest);
+    const uint32_t maxInstances = 500000;  // Support up to 5 * 10^5 instances
+    // BufferDesc instanceDesc = BufferDesc::Data(L"Ivy_StemInstanceBuffer", sizeof(IvyInstanceData) * maxInstances, sizeof(IvyInstanceData), 0, ResourceFlags::AllowUnorderedAccess);
+    // m_pStemInstanceBuffer = Buffer::CreateBufferResource(&instanceDesc, ResourceState::NonPixelShaderResource);
+    BufferDesc instanceDesc = BufferDesc::Data(L"Ivy_LeafInstanceBuffer", sizeof(IvyInstanceData) * maxInstances, sizeof(IvyInstanceData), 0, ResourceFlags::AllowUnorderedAccess);
+    m_pLeafInstanceBuffer = Buffer::CreateBufferResource(&instanceDesc, ResourceState::NonPixelShaderResource);
     
-    // Initialize instance data with dummy values arranged in rows
-    // Create grid pattern with space of 0.5 between instances
-    std::vector<IvyInstanceData> allInstances(maxInstances);
-    
-    const float spacing = 0.5f;
-    const uint32_t instancesPerRow = 1000;
+    // Initialize instance buffer with identity matrices
+    // Work graph will populate the actual transform data
+    std::vector<IvyInstanceData> initialInstances(maxInstances);
     
     for (uint32_t i = 0; i < maxInstances; ++i)
     {
-        uint32_t row = i / instancesPerRow;
-        uint32_t col = i % instancesPerRow;
-        
-        float x = col * spacing - (instancesPerRow - 1) * spacing * 0.5f; // Center the row
-        float z = row * spacing;
-        
-        allInstances[i].transform = Mat4::translation(Vec3(x, 1.0f, z));
+        initialInstances[i].transform = Mat4::identity(); // Identity matrix, work graph will overwrite
     }
     
-    // Upload instance data to buffer
-    m_pStemInstanceBuffer->CopyData(allInstances.data(), allInstances.size() * sizeof(IvyInstanceData));
-    m_pLeafInstanceBuffer->CopyData(allInstances.data(), allInstances.size() * sizeof(IvyInstanceData));
+    // Upload initial data to buffer (work graph will modify this)
+    m_pLeafInstanceBuffer->CopyData(initialInstances.data(), initialInstances.size() * sizeof(IvyInstanceData));
 
     m_ivyRenderIndirect.Init(m_pGBufferAlbedoOutput,
                              m_pGBufferNormalOutput,
@@ -244,21 +234,28 @@ void IvyRenderModule::Execute(double deltaTime, cauldron::CommandList* pCmdList)
     workGraphData.InverseViewProjection  = InverseMatrix(workGraphData.ViewProjection);
     workGraphData.CameraPosition         = currentCamera->GetCameraTranslation();
     workGraphData.PreviousCameraPosition = InverseMatrix(currentCamera->GetPreviousView()).getCol3();
-    workGraphData.IvyStemSurfaceIndex    = m_ivyStemSurfaceIndex;
+    // workGraphData.IvyStemSurfaceIndex    = m_ivyStemSurfaceIndex;
     workGraphData.IvyLeafSurfaceIndex    = m_ivyLeafSurfaceIndex;
 
-    // Transition argument buffer: IndirectArgument -> UnorderedAccess for work graph
-    {
-        Barrier argBufferBarrier = Barrier::Transition(m_pArgumentBuffer->GetResource(),
-                                                       ResourceState::IndirectArgument,
-                                                       ResourceState::UnorderedAccess);
-        ResourceBarrier(pCmdList, 1, &argBufferBarrier);
-    }
+    // Transition buffers: ShaderResource -> UnorderedAccess for work graph
+    std::vector<Barrier> uavBarriers;
+    uavBarriers.push_back(Barrier::Transition(m_pArgumentBuffer->GetResource(),
+                                              ResourceState::IndirectArgument,
+                                              ResourceState::UnorderedAccess));
+    uavBarriers.push_back(Barrier::Transition(m_pLeafInstanceBuffer->GetResource(),
+                                              ResourceState::NonPixelShaderResource,
+                                              ResourceState::UnorderedAccess));
+    // uavBarriers.push_back(Barrier::Transition(m_pStemInstanceBuffer->GetResource(),
+    //                                           ResourceState::NonPixelShaderResource,
+    //                                           ResourceState::UnorderedAccess));
+    ResourceBarrier(pCmdList, static_cast<uint32_t>(uavBarriers.size()), uavBarriers.data());
 
     BufferAddressInfo workGraphDataInfo = GetDynamicBufferPool()->AllocConstantBuffer(sizeof(WorkGraphCBData), &workGraphData);
     m_pWorkGraphParameterSet->UpdateRootConstantBuffer(&workGraphDataInfo, 0);
     
     m_pWorkGraphParameterSet->SetBufferUAV(m_pArgumentBuffer, 0); // Bind argument buffer to u0
+    m_pWorkGraphParameterSet->SetBufferUAV(m_pLeafInstanceBuffer, 1); // Bind leaf instance buffer to u1
+    // m_pWorkGraphParameterSet->SetBufferUAV(m_pStemInstanceBuffer, 2); // Bind stem instance buffer to u2
     m_pWorkGraphParameterSet->SetAccelerationStructure(GetScene()->GetASManager()->GetTLAS(), 0);
     
     // Bind all the parameters
@@ -268,7 +265,7 @@ void IvyRenderModule::Execute(double deltaTime, cauldron::CommandList* pCmdList)
     {
         D3D12_NODE_CPU_INPUT inputs[3];
 
-        // IvyBranch records
+        // IvyBranch records (re-enabled for leaf generation)
         inputs[0].EntrypointIndex     = m_WorkGraphEntryPoints.IvyBranch;
         inputs[0].NumRecords          = static_cast<UINT>(m_ivyBranchRecords.size());
         inputs[0].pRecords            = m_ivyBranchRecords.data();
@@ -300,24 +297,29 @@ void IvyRenderModule::Execute(double deltaTime, cauldron::CommandList* pCmdList)
         m_WorkGraphProgramDesc.WorkGraph.Flags &= ~D3D12_SET_WORK_GRAPH_FLAG_INITIALIZE;
     }
 
-    // Add barrier: Unordered Access -> Indirect Argument
-    {
-        Barrier argBufferBarrier = Barrier::Transition(m_pArgumentBuffer->GetResource(),
-                                                       ResourceState::UnorderedAccess,
-                                                       ResourceState::IndirectArgument);
-        ResourceBarrier(pCmdList, 1, &argBufferBarrier);
-    }
+    // Add barriers: Unordered Access -> appropriate states for ExecuteIndirect
+    std::vector<Barrier> postWorkGraphBarriers;
+    postWorkGraphBarriers.push_back(Barrier::Transition(m_pArgumentBuffer->GetResource(),
+                                                        ResourceState::UnorderedAccess,
+                                                        ResourceState::IndirectArgument));
+    postWorkGraphBarriers.push_back(Barrier::Transition(m_pLeafInstanceBuffer->GetResource(),
+                                                        ResourceState::UnorderedAccess,
+                                                        ResourceState::NonPixelShaderResource));
+    // postWorkGraphBarriers.push_back(Barrier::Transition(m_pStemInstanceBuffer->GetResource(),
+    //                                                     ResourceState::UnorderedAccess,
+    //                                                     ResourceState::NonPixelShaderResource));
+    ResourceBarrier(pCmdList, static_cast<uint32_t>(postWorkGraphBarriers.size()), postWorkGraphBarriers.data());
 
-    // Indirect draw ivy  
+    // Indirect draw ivy (only leaf, stem commented out)
     m_ivyRenderIndirect.Render(pCmdList,  // Pass command list for consistency
                                workGraphData.ViewProjection,
                                m_pArgumentBuffer,  // Pass argument buffer
                                &m_RTInfoTables.m_VertexBuffers, 
                                &m_RTInfoTables.m_IndexBuffers, 
                                m_ivyLeafSurfaceIndex,
-                               m_ivyStemSurfaceIndex,
+                               -1, // m_ivyStemSurfaceIndex commented out
                                &m_RTInfoTables.m_cpuSurfaceBuffer,
-                               m_pStemInstanceBuffer,
+                               nullptr, // m_pStemInstanceBuffer commented out
                                m_pLeafInstanceBuffer);
 
     EndRaster(pCmdList, nullptr);
@@ -356,7 +358,7 @@ void IvyRenderModule::InitWorkGraphProgram()
     // Create root signature for work graph
     RootSignatureDesc workGraphRootSigDesc;
     workGraphRootSigDesc.AddConstantBufferView(0, ShaderBindStage::Compute, 1);
-    workGraphRootSigDesc.AddBufferUAVSet(0, ShaderBindStage::Compute, 1); // u0 binding for argument buffer
+    workGraphRootSigDesc.AddBufferUAVSet(0, ShaderBindStage::Compute, 3); // u0: argument buffer, u1: leaf instance buffer, u2: stem instance buffer
     workGraphRootSigDesc.AddRTAccelerationStructureSet(0, ShaderBindStage::Compute, 1);
 
     workGraphRootSigDesc.AddBufferSRVSet(RAYTRACING_INFO_BEGIN_SLOT + 0, ShaderBindStage::Compute, 1);
@@ -748,10 +750,10 @@ void IvyRenderModule::OnNewContentLoaded(ContentBlock* pContentBlock)
 
                 const MeshData* pMeshData = reinterpret_cast<const MeshData*>(pMesh);
 
-                if (pMeshData->m_Name == L"..\\media\\Ivy\\Stem")
-                {
-                    m_ivyStemSurfaceIndex = static_cast<int>(m_RTInfoTables.m_cpuSurfaceBuffer.size());
-                }
+                // if (pMeshData->m_Name == L"..\\media\\Ivy\\Stem")
+                // {
+                //     m_ivyStemSurfaceIndex = static_cast<int>(m_RTInfoTables.m_cpuSurfaceBuffer.size());
+                // }
 
                 if (pMeshData->m_Name == L"..\\media\\Ivy\\Leaf")
                 {

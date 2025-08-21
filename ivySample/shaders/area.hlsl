@@ -62,14 +62,15 @@ void IvyArea(
         g_argumentBuffer[0].StartInstanceLocation = 0;
     }
     
-    if (IvyStemSurfaceIndex >= 0)
-    {
-        g_argumentBuffer[1].InstanceCount = 0;
-        g_argumentBuffer[1].IndexCountPerInstance = g_surface_info[IvyStemSurfaceIndex].num_indices;
-        g_argumentBuffer[1].StartIndexLocation = 0;
-        g_argumentBuffer[1].BaseVertexLocation = 0;
-        g_argumentBuffer[1].StartInstanceLocation = 0;
-    }
+    // Stem argument buffer initialization commented out for leaf-only testing
+    // if (IvyStemSurfaceIndex >= 0)
+    // {
+    //     g_argumentBuffer[1].InstanceCount = 0;
+    //     g_argumentBuffer[1].IndexCountPerInstance = g_surface_info[IvyStemSurfaceIndex].num_indices;
+    //     g_argumentBuffer[1].StartIndexLocation = 0;
+    //     g_argumentBuffer[1].BaseVertexLocation = 0;
+    //     g_argumentBuffer[1].StartInstanceLocation = 0;
+    // }
 
     // record.transform defines a bounding box in [-1; 1]
     // Here we compute the area of the top surface of the bounding box
