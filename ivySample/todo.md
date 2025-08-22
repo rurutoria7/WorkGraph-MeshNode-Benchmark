@@ -121,6 +121,7 @@
         3. [x] InterlockedAdd 的使用方式是否正確
         4. [ ] @ivy.hlsl 寫入 instance 的邏輯錯誤
     - 一個重要的線索是，leaf 是錯的但是 stem 是正常的。那如果單獨修改 leaf 呢？
+    - 會不會是初始化執行了兩次？取消一個 input record
 
 ```
 AtomicAdd(argument[LEAF].InstanceCount, outputStemCount, orignalCount);

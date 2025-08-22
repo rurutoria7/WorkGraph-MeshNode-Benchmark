@@ -150,8 +150,8 @@ private:
         const cauldron::Buffer* m_pInstanceBuffer   = NULL;  // instance_id -> Instance_Info buffer
     } m_RTInfoTables;
 
-    // Index of ivy stem surface in m_cpuSurfaceBuffer (commented out for testing)
-    // int m_ivyStemSurfaceIndex = -1;
+    // Index of ivy stem surface in m_cpuSurfaceBuffer
+    int m_ivyStemSurfaceIndex = -1;
     // Index of ivy leaf surface in m_cpuSurfaceBuffer
     int m_ivyLeafSurfaceIndex = -1;
 
@@ -161,6 +161,6 @@ private:
     cauldron::Buffer* m_pArgumentBuffer = nullptr;
     
     // Instance buffers for ExecuteIndirect rendering
-    // cauldron::Buffer* m_pStemInstanceBuffer = nullptr;  // commented out for testing
+    cauldron::Buffer* m_pStemInstanceBuffer = nullptr;
     cauldron::Buffer* m_pLeafInstanceBuffer = nullptr;
 };

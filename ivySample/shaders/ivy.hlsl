@@ -344,8 +344,25 @@ void IvyBranch(
             g_leafInstanceBuffer[leafInstanceStartIndex + leafIdx].transform = fullTransform;
         }
         
-        // Still update stem count for compatibility (though we don't use stem rendering)
-        // InterlockedAdd(g_argumentBuffer[1].InstanceCount, outputStemCount);  // Commented out for stem-only test
+        // Get starting index for writing stem instances
+        uint stemInstanceStartIndex;
+        InterlockedAdd(g_argumentBuffer[1].InstanceCount, outputStemCount, stemInstanceStartIndex);
+        
+        // Write all stem transforms to the instance buffer
+        for (uint stemIdx = 0; stemIdx < outputStemCount; stemIdx++)
+        {
+            float3x4 stemTransform = ivyStemOutputRecord.Get().transform[stemIdx];
+            
+            // Convert 3x4 matrix to 4x4 matrix for IvyInstanceData
+            float4x4 fullTransform = float4x4(
+                stemTransform._m00, stemTransform._m01, stemTransform._m02, stemTransform._m03,
+                stemTransform._m10, stemTransform._m11, stemTransform._m12, stemTransform._m13,
+                stemTransform._m20, stemTransform._m21, stemTransform._m22, stemTransform._m23,
+                0.0f,               0.0f,               0.0f,               1.0f
+            );
+            
+            g_stemInstanceBuffer[stemInstanceStartIndex + stemIdx].transform = fullTransform;
+        }
     }
 
     // Keep original mesh node outputs for compatibility (they will be ignored)
