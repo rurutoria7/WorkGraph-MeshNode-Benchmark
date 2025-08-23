@@ -20,6 +20,12 @@ struct IvyRenderIndirect
     cauldron::RootSignature*    m_pRootSignature    = nullptr;  // Own Graphics Root Signature
     cauldron::ParameterSet*     m_pParameterSet     = nullptr;  // Own ParameterSet
     cauldron::PipelineObject*   m_pPipelineObject   = nullptr;
+    
+    // Track binding state to avoid redundant SetBufferSRV calls
+    bool m_instanceBuffersBound = false;
+    
+    // Track root constant initialization state
+    bool m_rootConstantsInitialized = false;
 
     ~IvyRenderIndirect()
     {
@@ -46,7 +52,8 @@ struct IvyRenderIndirect
         // Create independent Graphics Root Signature for ExecuteIndirect
         cauldron::RootSignatureDesc execIndirectRootSigDesc;
         execIndirectRootSigDesc.AddConstantBufferView(0, cauldron::ShaderBindStage::Vertex, 1);        // ViewProjection CBV
-        execIndirectRootSigDesc.AddBufferSRVSet(0, cauldron::ShaderBindStage::Vertex, 1);             // Instance buffer SRV
+        execIndirectRootSigDesc.AddBufferSRVSet(0, cauldron::ShaderBindStage::Vertex, 2);             // Instance buffer SRV Array (t0, t1)
+        execIndirectRootSigDesc.Add32BitConstantBuffer(1, cauldron::ShaderBindStage::Vertex, 1);       // instance_buffer_index (b1)
         execIndirectRootSigDesc.m_PipelineType = cauldron::PipelineType::Graphics;
         
         m_pRootSignature = cauldron::RootSignature::CreateRootSignature(L"ExecuteIndirect_RootSignature", execIndirectRootSigDesc);
@@ -99,6 +106,7 @@ struct IvyRenderIndirect
         cauldron::CauldronWarning(L"[IvyRenderIndirect] Init() completed: PSO and dummy args created");
     }
 
+
     void Render(cauldron::CommandList* pCmdList,  // Pass command list to ensure consistency
                 const Mat4& viewProjectionMatrix,
                 const cauldron::Buffer* pArgumentBuffer,  // Now passed from IvyRenderModule
@@ -133,9 +141,28 @@ struct IvyRenderIndirect
         // Update ViewProjection matrix in our own ParameterSet
         cauldron::BufferAddressInfo viewProjBufferInfo = cauldron::GetDynamicBufferPool()->AllocConstantBuffer(sizeof(Mat4), &viewProjectionMatrix);
         m_pParameterSet->UpdateRootConstantBuffer(&viewProjBufferInfo, 0);
-        
-        // Bind our own ParameterSet with ViewProjection CBV and Instance Buffer SRV
-        m_pParameterSet->Bind(pCmdList, m_pPipelineObject);
+
+        // Initialize root constants once (avoid repeated UpdateRoot32BitConstant calls)
+        if (!m_rootConstantsInitialized)
+        {
+            uint32_t dummyIndex = 0;
+            m_pParameterSet->UpdateRoot32BitConstant(1, &dummyIndex, 1);  // b1: Initialize with dummy value
+            m_rootConstantsInitialized = true;
+        }
+
+        // Bind instance buffers once (if not already bound)
+        if (!m_instanceBuffersBound && (pLeafInstanceBuffer || pStemInstanceBuffer))
+        {
+            if (pLeafInstanceBuffer)
+                m_pParameterSet->SetBufferSRV(pLeafInstanceBuffer, 0);  // t0: Leaf instance buffer
+            if (pStemInstanceBuffer)
+                m_pParameterSet->SetBufferSRV(pStemInstanceBuffer, 1);  // t1: Stem instance buffer
+                
+            m_instanceBuffersBound = true;
+            cauldron::CauldronWarning(L"[IvyRenderIndirect] Instance buffers bound to t0 and t1");
+        }
+
+        // Note: ParameterSet will be bound for each draw call after setting instance_buffer_index
 
         // Note: Argument buffer is now initialized by IvyRenderModule each frame
         // and will be modified by work graph compute nodes via AtomicAdd operations
@@ -155,12 +182,13 @@ struct IvyRenderIndirect
             cauldron::BufferAddressInfo indexBufferInfo = (*pIndexBuffers)[leafSurfaceInfo.index_offset]->GetAddressInfo();
             cauldron::SetIndexBuffer(pCmdList, &indexBufferInfo);
 
-            if (pLeafInstanceBuffer)
-                m_pParameterSet->SetBufferSRV(pLeafInstanceBuffer, 0);
+            uint32_t leafBufferIndex = 0;
+            m_pParameterSet->UpdateRoot32BitConstant(1, &leafBufferIndex, 1);  // Set instance_buffer_index = 0 for leaf (b1)
+            m_pParameterSet->Bind(pCmdList, m_pPipelineObject);                // Bind with updated constant
 
             // Execute first draw command (leaf) using offset 0
             cauldron::ExecuteIndirect(pCmdList, m_pIndirectWorkload, pArgumentBuffer, 1 /*drawCount*/, 0 /*offset*/);
-            cauldron::CauldronWarning(L"[IvyRenderIndirect] Executed leaf geometry");
+            cauldron::CauldronWarning(L"[IvyRenderIndirect] Executed leaf geometry with buffer index 0");
         }
 
         // Execute stem geometry if valid
@@ -178,12 +206,13 @@ struct IvyRenderIndirect
             cauldron::BufferAddressInfo indexBufferInfo = (*pIndexBuffers)[stemSurfaceInfo.index_offset]->GetAddressInfo();
             cauldron::SetIndexBuffer(pCmdList, &indexBufferInfo);
 
-            if (pStemInstanceBuffer)
-                m_pParameterSet->SetBufferSRV(pStemInstanceBuffer, 0);
+            uint32_t stemBufferIndex = 1;
+            m_pParameterSet->UpdateRoot32BitConstant(1, &stemBufferIndex, 1);  // Set instance_buffer_index = 1 for stem (b1)
+            m_pParameterSet->Bind(pCmdList, m_pPipelineObject);                // Bind with updated constant
 
             // Execute second draw command (stem) using offset sizeof(DrawIndexedArgs)
             cauldron::ExecuteIndirect(pCmdList, m_pIndirectWorkload, pArgumentBuffer, 1 /*drawCount*/, sizeof(DrawIndexedArgs) /*offset*/);
-            cauldron::CauldronWarning(L"[IvyRenderIndirect] Executed stem geometry");
+            cauldron::CauldronWarning(L"[IvyRenderIndirect] Executed stem geometry with buffer index 1");
         }
     }
 };

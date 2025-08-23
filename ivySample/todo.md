@@ -130,6 +130,8 @@
         3. 在第一次传入 instance buffer 的时候，使用 SetBufferSRV 绑定到 t0, t1
         4. 在 HLSL 使用 descriptor array 来宣告接住 2 个 buffer
         5. 在 HLSL 内部使用的时候，用 instance_buffer_index 来 index 
+        6. 不用，在内部记录是否有绑定过就可以
+    - [ ] how to update root argument
     
     
 ```
