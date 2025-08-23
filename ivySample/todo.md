@@ -110,7 +110,7 @@
     - [bug] 如果每個 thread group +1 argument 會導致每次渲染的數量不一樣
         - [x] 可能 coalescing 不太一定，但是如果加 output instance count 就一樣了
 
-4. [ ] debug: 可以寫 original transform，但是有 bug:
+4. [x] debug: 可以寫 original transform，但是有 bug:
     - bug:
         1. stem 的 transform 應該是對的，leaf 的 transform 大致上正確但是都有一點偏移。
         2. instance 會閃爍
@@ -122,6 +122,26 @@
         4. [ ] @ivy.hlsl 寫入 instance 的邏輯錯誤
     - 一個重要的線索是，leaf 是錯的但是 stem 是正常的。那如果單獨修改 leaf 呢？
     - 會不會是初始化執行了兩次？取消一個 input record
+
+5. [ ] 解決 bug: 懷疑 SetBufferSRV 沒有如預期中執行。
+    - sol:
+        1. 使用 constant buffer，传入一个 uint，叫做 "instance_buffer_index", 其中 leaf 是 0， stem 是 1
+        2. 在 root signature 宣告两个 SRV slot
+        3. 在第一次传入 instance buffer 的时候，使用 SetBufferSRV 绑定到 t0, t1
+        4. 在 HLSL 使用 descriptor array 来宣告接住 2 个 buffer
+        5. 在 HLSL 内部使用的时候，用 instance_buffer_index 来 index 
+    
+    
+```
+RootSig [CBV: b0, Dtable(SRV: t0)]
+ParameterSet:
+    - Dheap[SRV]
+    - RootConstant
+    + SetSRV(hlsl_idx, buffer_address)
+    + BindAll()
+
+SetSRV() --write--> [Dheap] <--read-- BindAll() --write--> [cmdList.rootParam]
+```
 
 ```
 AtomicAdd(argument[LEAF].InstanceCount, outputStemCount, orignalCount);
