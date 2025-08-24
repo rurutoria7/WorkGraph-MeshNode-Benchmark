@@ -123,7 +123,7 @@
     - 一個重要的線索是，leaf 是錯的但是 stem 是正常的。那如果單獨修改 leaf 呢？
     - 會不會是初始化執行了兩次？取消一個 input record
 
-5. [ ] 解決 bug: 懷疑 SetBufferSRV 沒有如預期中執行。
+5. [x] 解決 bug: 懷疑 SetBufferSRV 沒有如預期中執行。
     - sol:
         1. 使用 constant buffer，传入一个 uint，叫做 "instance_buffer_index", 其中 leaf 是 0， stem 是 1
         2. 在 root signature 宣告两个 SRV slot
@@ -132,6 +132,8 @@
         5. 在 HLSL 内部使用的时候，用 instance_buffer_index 来 index 
         6. 不用，在内部记录是否有绑定过就可以
     - [ ] how to update root argument
+        - [09:35:25][Fatal]   Out of memory to store root 32-bit constants. Please grow MAX_32BIT_ENTRIES constant in parameterset_dx12.h
+        - Update32BitRootConstant 底層發生甚麼事情?
     
     
 ```
