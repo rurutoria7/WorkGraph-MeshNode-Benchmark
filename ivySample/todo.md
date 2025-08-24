@@ -135,7 +135,6 @@
         - [09:35:25][Fatal]   Out of memory to store root 32-bit constants. Please grow MAX_32BIT_ENTRIES constant in parameterset_dx12.h
         - Update32BitRootConstant 底層發生甚麼事情?
     
-    
 ```
 RootSig [CBV: b0, Dtable(SRV: t0)]
 ParameterSet:
@@ -154,11 +153,13 @@ if isFirstThreadInGroup():
         LeafInstance[i + originalCount].transform *= TranslateMatrix(0, 2, 0)
 ```
 
-4. Write correct transform
-
 ## Goal 4: Draw Better
 
-1. PS output Albedo as color
+1. Align Pipeline state 
+    - Work Graph have a pipeline state e.g. Depth
+    - Align ExecuteIndirect's Pipeline state to work graph's
+
+2. PS output Albedo as color
     - Bind Albedo texture SRV
 
 2. Align Pixel Shader to original Implementation

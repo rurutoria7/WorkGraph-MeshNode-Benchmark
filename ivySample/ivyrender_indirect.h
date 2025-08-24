@@ -82,14 +82,22 @@ struct IvyRenderIndirect
         };
         psoDesc.AddInputLayout(vertexInputLayout);
 
-        // Setup rasterizer state - disable culling for debugging
+        // Setup rasterizer state to match Work Graph - enable backface culling for better performance
         cauldron::RasterDesc rasterDesc;
-        rasterDesc.CullingMode = cauldron::CullMode::None;  // Disable culling to see both sides
+        rasterDesc.CullingMode = cauldron::CullMode::Back;  // Enable backface culling like Work Graph mesh nodes
         rasterDesc.FrontCounterClockwise = true;
+        rasterDesc.Wireframe = false;  // Solid fill mode (not wireframe)
         psoDesc.AddRasterStateDescription(&rasterDesc);
 
         // Setup primitive topology - use triangle list
         psoDesc.AddPrimitiveTopology(cauldron::PrimitiveTopologyType::Triangle);
+
+        // Setup depth-stencil state to match Work Graph
+        cauldron::DepthDesc depthDesc;
+        depthDesc.DepthEnable = true;
+        depthDesc.DepthWriteEnable = true;
+        depthDesc.DepthFunc = cauldron::ComparisonFunc::LessEqual;
+        psoDesc.AddDepthState(&depthDesc);
 
         // Setup render target formats to match GBuffer
         cauldron::ResourceFormat colorFormats[4] = {
